@@ -1,5 +1,6 @@
 module CLI where
 
+import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import Options.Applicative
   ( CommandFields,
@@ -32,7 +33,7 @@ newtype Opts = Opts {optCommand :: Command}
 data Command
   = Now (Maybe Format)
   | Elapse (Maybe Format) Offset
-  | Range (Maybe Format) Take TimeStamp
+  | Range (Maybe Format) TimeStamp Take Step
 
 data Format = UNIX | ISO8601
 
@@ -55,7 +56,7 @@ run = do
   case optCommand opts of
     Now format -> execNow format
     Elapse format offset -> execElapse format offset
-    Range format take step -> undefined
+    Range format ts t step -> execRange format ts t step
   where
     commandOptions :: Parser Opts
     commandOptions =
@@ -63,6 +64,7 @@ run = do
         <$> subparser
           ( nowCommand
               <> elapseCommand
+              <> rangeCommand
           )
 
     optsParser :: ParserInfo Opts
@@ -96,20 +98,49 @@ run = do
         )
       where
         elapseOptions :: Parser Command
-        elapseOptions = Elapse <$> formatOptions <*> offsetOptions
+        elapseOptions =
+          Elapse
+            <$> formatOptions
+            <*> offsetOptions
+
+    rangeCommand :: Mod CommandFields Command
+    rangeCommand =
+      command
+        "range"
+        ( info
+            (rangeOptions <**> helper)
+            (progDesc "Prints a range of time starting from a timestamp (unix seconds) and stepped over with a specific value")
+        )
+      where
+        rangeOptions :: Parser Command
+        rangeOptions =
+          Range
+            <$> formatOptions
+            <*> timestampOptions
+            <*> takeOptions
+            <*> stepOptions
 
     execNow :: Maybe Format -> IO ()
-    execNow format = UNIX.now >>= putStrLn . formatUnixSeconds format
+    execNow format = displayTime =<< UNIX.now
+      where
+        displayTime = putStrLn . formatUNIXSeconds format
 
     execElapse :: Maybe Format -> Offset -> IO ()
-    execElapse format offset = result >>= putStrLn . formatUnixSeconds format
+    execElapse format offset = displayTime =<< getTime offset
       where
-        result = UNIX.elapse . offsetToSeconds $ offset
+        getTime = UNIX.elapse . offsetToSeconds
+        displayTime = putStrLn . formatUNIXSeconds format
 
-    formatUnixSeconds :: Maybe Format -> UNIX.UNIXTime -> String
-    formatUnixSeconds Nothing = UNIX.toUNIXString
-    formatUnixSeconds (Just UNIX) = UNIX.toUNIXString
-    formatUnixSeconds (Just ISO8601) = UNIX.toISO8601String
+    execRange :: Maybe Format -> TimeStamp -> Take -> Step -> IO ()
+    execRange format (TimeStamp ts) (Take n) (Step s) = displayTime t
+      where
+        t = UNIX.range (realToFrac ts) n s
+        displayTime = putStrLn . List.intercalate "\n" . map (formatUNIXSeconds format)
+
+    formatUNIXSeconds :: Maybe Format -> UNIX.UNIXTime -> String
+    formatUNIXSeconds Nothing = UNIX.toUNIXString
+    formatUNIXSeconds (Just UNIX) = UNIX.toUNIXString
+    formatUNIXSeconds (Just ISO8601) = UNIX.toISO8601String
 
     offsetToSeconds :: Offset -> UNIX.UNIXTime
     offsetToSeconds offset = totalOffset
@@ -192,3 +223,36 @@ offsetOptions =
             <> metavar "SECOND_OFFSET"
             <> help "number of seconds relative to the current time"
         )
+
+takeOptions :: Parser Take
+takeOptions =
+  Take
+    <$> option
+      auto
+      ( long "take"
+          <> short 't'
+          <> metavar "TAKE_AMOUNT"
+          <> help "number of values to take"
+      )
+
+timestampOptions :: Parser TimeStamp
+timestampOptions =
+  TimeStamp
+    <$> option
+      auto
+      ( long "timestamp"
+          <> long "ts"
+          <> metavar "TIMESTAMP"
+          <> help "timestamp"
+      )
+
+stepOptions :: Parser Step
+stepOptions =
+  Step
+    <$> option
+      auto
+      ( long "step"
+          <> short 's'
+          <> metavar "STEP"
+          <> help "value to be stepped over in seconds"
+      )

@@ -13,6 +13,9 @@ elapse offset = (offset +) <$> POSIX.getPOSIXTime
 now :: IO POSIX.POSIXTime
 now = elapse 0
 
+range :: UNIXTime -> Integer -> Integer -> [UNIXTime]
+range ts n step = take (fromIntegral n) [ts, ts + realToFrac step ..]
+
 toISO8601String :: UNIXTime -> String
 toISO8601String = ISO8601.iso8601Show . POSIX.posixSecondsToUTCTime
 
