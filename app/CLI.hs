@@ -34,14 +34,22 @@ data Command
   = Now (Maybe Format)
   | Elapse (Maybe Format) Offset
   | Range (Maybe Format) TimeStamp Take Step
+  | Seconds Quantity
 
 data Format = UNIX | ISO8601
 
 data Offset = Offset
-  { days :: Maybe Integer,
-    hours :: Maybe Integer,
-    minutes :: Maybe Integer,
-    seconds :: Maybe Integer
+  { secondOffset :: Maybe Integer,
+    minuteOffset :: Maybe Integer,
+    hourOffset :: Maybe Integer,
+    dayOffset :: Maybe Integer
+  }
+
+data Quantity = Quantity
+  { secondQty :: Maybe Integer,
+    minuteQty :: Maybe Integer,
+    hourQty :: Maybe Integer,
+    dayQty :: Maybe Integer
   }
 
 newtype Take = Take Integer
@@ -57,6 +65,7 @@ run = do
     Now format -> execNow format
     Elapse format offset -> execElapse format offset
     Range format ts t step -> execRange format ts t step
+    Seconds qty -> execSeconds qty
   where
     commandOptions :: Parser Opts
     commandOptions =
@@ -65,6 +74,7 @@ run = do
           ( nowCommand
               <> elapseCommand
               <> rangeCommand
+              <> secondsCommand
           )
 
     optsParser :: ParserInfo Opts
@@ -120,6 +130,18 @@ run = do
             <*> takeOptions
             <*> stepOptions
 
+    secondsCommand :: Mod CommandFields Command
+    secondsCommand =
+      command
+        "seconds"
+        ( info
+            (secondsOptions <**> helper)
+            (progDesc "Prints the number of seconds")
+        )
+      where
+        secondsOptions :: Parser Command
+        secondsOptions = Seconds <$> quantityOptions
+
     execNow :: Maybe Format -> IO ()
     execNow format = displayTime =<< UNIX.now
       where
@@ -137,23 +159,42 @@ run = do
         t = UNIX.range (realToFrac ts) n s
         displayTime = putStrLn . List.intercalate "\n" . map (formatUNIXSeconds format)
 
+    execSeconds :: Quantity -> IO ()
+    execSeconds = putStrLn . formatUNIXSeconds Nothing . quantityToSeconds
+
     formatUNIXSeconds :: Maybe Format -> UNIX.UNIXTime -> String
     formatUNIXSeconds Nothing = UNIX.toUNIXString
     formatUNIXSeconds (Just UNIX) = UNIX.toUNIXString
     formatUNIXSeconds (Just ISO8601) = UNIX.toISO8601String
 
+    calculateUNIXTime :: [Integer] -> [Integer] -> UNIX.UNIXTime
+    calculateUNIXTime weights coeffs = t
+      where
+        pairs = zip coeffs weights
+        values = map (uncurry (*)) pairs
+        t = realToFrac . sum $ values
+
     offsetToSeconds :: Offset -> UNIX.UNIXTime
-    offsetToSeconds offset = totalOffset
+    offsetToSeconds (Offset s m h d) = totalOffset
       where
         secondsWeight = 1
         minutesWeight = secondsWeight * 60
         hoursWeight = minutesWeight * 60
         daysWeight = hoursWeight * 24
+        weights = [secondsWeight, minutesWeight, hoursWeight, daysWeight]
+        coeffs = map (Maybe.fromMaybe 0) [s, m, h, d]
+        totalOffset = calculateUNIXTime weights coeffs
 
-        offsetCoeffs = map (\f -> Maybe.fromMaybe 0 . f $ offset) [seconds, minutes, hours, days]
-        offsetPairs = zip offsetCoeffs [secondsWeight, minutesWeight, hoursWeight, daysWeight]
-        offsetValues = map (uncurry (*)) offsetPairs
-        totalOffset = realToFrac . sum $ offsetValues
+    quantityToSeconds :: Quantity -> UNIX.UNIXTime
+    quantityToSeconds (Quantity s m h d) = totalQty
+      where
+        secondsWeight = 1
+        minutesWeight = secondsWeight * 60
+        hoursWeight = minutesWeight * 60
+        daysWeight = hoursWeight * 24
+        weights = [secondsWeight, minutesWeight, hoursWeight, daysWeight]
+        coeffs = map (Maybe.fromMaybe 0) [s, m, h, d]
+        totalQty = calculateUNIXTime weights coeffs
 
 formatOptions :: Parser (Maybe Format)
 formatOptions = optional $ unixFormat <|> isoFormat
@@ -176,34 +217,24 @@ formatOptions = optional $ unixFormat <|> isoFormat
 offsetOptions :: Parser Offset
 offsetOptions =
   Offset
-    <$> optional dayOffset
-    <*> optional hourOffset
-    <*> optional minuteOffset
-    <*> optional secondOffset
+    <$> optional days
+    <*> optional hours
+    <*> optional minutes
+    <*> optional seconds
   where
-    dayOffset :: Parser Integer
-    dayOffset =
+    seconds :: Parser Integer
+    seconds =
       option
         auto
-        ( long "day"
-            <> long "dy"
-            <> short 'd'
-            <> metavar "DAY_OFFSET"
-            <> help "number of days relative to the current time"
+        ( long "second"
+            <> long "sec"
+            <> short 's'
+            <> metavar "SECOND_OFFSET"
+            <> help "number of seconds relative to the current time"
         )
 
-    hourOffset :: Parser Integer
-    hourOffset =
-      option
-        auto
-        ( long "hour"
-            <> long "hr"
-            <> short 'h'
-            <> metavar "HOUR_OFFSET"
-            <> help "number of hours relative to the current time"
-        )
-    minuteOffset :: Parser Integer
-    minuteOffset =
+    minutes :: Parser Integer
+    minutes =
       option
         auto
         ( long "minute"
@@ -213,15 +244,77 @@ offsetOptions =
             <> help "number of minutes relative to the current time"
         )
 
-    secondOffset :: Parser Integer
-    secondOffset =
+    hours :: Parser Integer
+    hours =
+      option
+        auto
+        ( long "hour"
+            <> long "hr"
+            <> short 'h'
+            <> metavar "HOUR_OFFSET"
+            <> help "number of hours relative to the current time"
+        )
+
+    days :: Parser Integer
+    days =
+      option
+        auto
+        ( long "day"
+            <> long "dy"
+            <> short 'd'
+            <> metavar "DAY_OFFSET"
+            <> help "number of days relative to the current time"
+        )
+
+quantityOptions :: Parser Quantity
+quantityOptions =
+  Quantity
+    <$> optional seconds
+    <*> optional minutes
+    <*> optional hours
+    <*> optional days
+  where
+    seconds :: Parser Integer
+    seconds =
       option
         auto
         ( long "second"
             <> long "sec"
             <> short 's'
-            <> metavar "SECOND_OFFSET"
-            <> help "number of seconds relative to the current time"
+            <> metavar "SECOND_QTY"
+            <> help "number of seconds"
+        )
+
+    hours :: Parser Integer
+    hours =
+      option
+        auto
+        ( long "hour"
+            <> long "hr"
+            <> short 'h'
+            <> metavar "HOUR_QTY"
+            <> help "number of hours"
+        )
+
+    minutes :: Parser Integer
+    minutes =
+      option
+        auto
+        ( long "minute"
+            <> long "min"
+            <> short 'm'
+            <> metavar "MINUTE_QTY"
+            <> help "number of minutes"
+        )
+    days :: Parser Integer
+    days =
+      option
+        auto
+        ( long "day"
+            <> long "dy"
+            <> short 'd'
+            <> metavar "DAY_QTY"
+            <> help "number of days"
         )
 
 takeOptions :: Parser Take
