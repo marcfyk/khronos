@@ -31,11 +31,11 @@ newtype Opts = Opts {optCommand :: Command}
 
 data Command
   = Now (Maybe Format)
-  | Elapse (Maybe Format) ElapseOffset
+  | Elapse (Maybe Format) Offset
 
 data Format = Unix | ISO8601
 
-data ElapseOffset = ElapseOffset
+data Offset = Offset
   { days :: Maybe Integer,
     hours :: Maybe Integer,
     minutes :: Maybe Integer,
@@ -108,9 +108,9 @@ run = do
             elapseOptions :: Parser Command
             elapseOptions = Elapse <$> formatOptions <*> offsetOptions
 
-            offsetOptions :: Parser ElapseOffset
+            offsetOptions :: Parser Offset
             offsetOptions =
-              ElapseOffset
+              Offset
                 <$> dayOffset
                 <*> hourOffset
                 <*> minuteOffset
@@ -160,11 +160,8 @@ run = do
     formatUnixSeconds (Just Unix) = Unix.toUnixString
     formatUnixSeconds (Just ISO8601) = Unix.toISO8601String
 
-    execNow :: Maybe Format -> IO ()
-    execNow format = Unix.now >>= putStrLn . formatUnixSeconds format
-
-    execElapse :: Maybe Format -> ElapseOffset -> IO ()
-    execElapse format offset = Unix.elapse totalOffset >>= putStrLn . formatUnixSeconds format
+    offsetToSeconds :: Offset -> Unix.Unix
+    offsetToSeconds offset = totalOffset
       where
         secondsWeight = 1
         minutesWeight = secondsWeight * 60
@@ -175,3 +172,11 @@ run = do
         offsetPairs = zip offsetCoeffs [secondsWeight, minutesWeight, hoursWeight, daysWeight]
         offsetValues = map (uncurry (*)) offsetPairs
         totalOffset = realToFrac . sum $ offsetValues
+
+    execNow :: Maybe Format -> IO ()
+    execNow format = Unix.now >>= putStrLn . formatUnixSeconds format
+
+    execElapse :: Maybe Format -> Offset -> IO ()
+    execElapse format offset = result >>= putStrLn . formatUnixSeconds format
+      where
+        result = Unix.elapse . offsetToSeconds $ offset
