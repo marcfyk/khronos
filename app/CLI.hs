@@ -25,7 +25,7 @@ import Options.Applicative
     (<**>),
     (<|>),
   )
-import qualified Unix
+import qualified UNIX
 
 newtype Opts = Opts {optCommand :: Command}
 
@@ -33,7 +33,7 @@ data Command
   = Now (Maybe Format)
   | Elapse (Maybe Format) Offset
 
-data Format = Unix | ISO8601
+data Format = UNIX | ISO8601
 
 data Offset = Offset
   { days :: Maybe Integer,
@@ -72,7 +72,7 @@ run = do
             unixFormat :: Parser Format
             unixFormat =
               flag'
-                Unix
+                UNIX
                 (long "unix" <> help "unix format")
 
             isoFormat :: Parser Format
@@ -111,14 +111,15 @@ run = do
             offsetOptions :: Parser Offset
             offsetOptions =
               Offset
-                <$> dayOffset
-                <*> hourOffset
-                <*> minuteOffset
-                <*> secondOffset
+                <$> optional dayOffset
+                <*> optional hourOffset
+                <*> optional minuteOffset
+                <*> optional secondOffset
 
-            dayOffset :: Parser (Maybe Integer)
+            dayOffset :: Parser Integer
             dayOffset =
-              optional . option auto $
+              option
+                auto
                 ( long "day"
                     <> long "dy"
                     <> short 'd'
@@ -126,18 +127,20 @@ run = do
                     <> help "number of days relative to the current time"
                 )
 
-            hourOffset :: Parser (Maybe Integer)
+            hourOffset :: Parser Integer
             hourOffset =
-              optional . option auto $
+              option
+                auto
                 ( long "hour"
                     <> long "hr"
                     <> short 'h'
                     <> metavar "HOUR_OFFSET"
                     <> help "number of hours relative to the current time"
                 )
-            minuteOffset :: Parser (Maybe Integer)
+            minuteOffset :: Parser Integer
             minuteOffset =
-              optional . option auto $
+              option
+                auto
                 ( long "minute"
                     <> long "min"
                     <> short 'm'
@@ -145,9 +148,10 @@ run = do
                     <> help "number of minutes relative to the current time"
                 )
 
-            secondOffset :: Parser (Maybe Integer)
+            secondOffset :: Parser Integer
             secondOffset =
-              optional . option auto $
+              option
+                auto
                 ( long "second"
                     <> long "sec"
                     <> short 's'
@@ -155,12 +159,12 @@ run = do
                     <> help "number of seconds relative to the current time"
                 )
 
-    formatUnixSeconds :: Maybe Format -> Unix.Unix -> String
-    formatUnixSeconds Nothing = Unix.toUnixString
-    formatUnixSeconds (Just Unix) = Unix.toUnixString
-    formatUnixSeconds (Just ISO8601) = Unix.toISO8601String
+    formatUnixSeconds :: Maybe Format -> UNIX.UNIXTime -> String
+    formatUnixSeconds Nothing = UNIX.toUNIXString
+    formatUnixSeconds (Just UNIX) = UNIX.toUNIXString
+    formatUnixSeconds (Just ISO8601) = UNIX.toISO8601String
 
-    offsetToSeconds :: Offset -> Unix.Unix
+    offsetToSeconds :: Offset -> UNIX.UNIXTime
     offsetToSeconds offset = totalOffset
       where
         secondsWeight = 1
@@ -174,9 +178,9 @@ run = do
         totalOffset = realToFrac . sum $ offsetValues
 
     execNow :: Maybe Format -> IO ()
-    execNow format = Unix.now >>= putStrLn . formatUnixSeconds format
+    execNow format = UNIX.now >>= putStrLn . formatUnixSeconds format
 
     execElapse :: Maybe Format -> Offset -> IO ()
     execElapse format offset = result >>= putStrLn . formatUnixSeconds format
       where
-        result = Unix.elapse . offsetToSeconds $ offset
+        result = UNIX.elapse . offsetToSeconds $ offset
