@@ -1,5 +1,6 @@
 module CLI where
 
+import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import Options.Applicative
   ( CommandFields,
@@ -25,22 +26,29 @@ import Options.Applicative
     (<**>),
     (<|>),
   )
-import qualified Unix
+import qualified UNIX
 
 newtype Opts = Opts {optCommand :: Command}
 
 data Command
   = Now (Maybe Format)
-  | Elapse (Maybe Format) ElapseOffset
+  | Elapse (Maybe Format) Offset
+  | Range (Maybe Format) TimeStamp Take Step
 
-data Format = Unix | ISO8601
+data Format = UNIX | ISO8601
 
-data ElapseOffset = ElapseOffset
+data Offset = Offset
   { days :: Maybe Integer,
     hours :: Maybe Integer,
     minutes :: Maybe Integer,
     seconds :: Maybe Integer
   }
+
+newtype Take = Take Integer
+
+newtype TimeStamp = TimeStamp Integer
+
+newtype Step = Step Integer
 
 run :: IO ()
 run = do
@@ -48,7 +56,17 @@ run = do
   case optCommand opts of
     Now format -> execNow format
     Elapse format offset -> execElapse format offset
+    Range format ts t step -> execRange format ts t step
   where
+    commandOptions :: Parser Opts
+    commandOptions =
+      Opts
+        <$> subparser
+          ( nowCommand
+              <> elapseCommand
+              <> rangeCommand
+          )
+
     optsParser :: ParserInfo Opts
     optsParser =
       info
@@ -58,113 +76,74 @@ run = do
             <> header "khronos - A CLI for time"
         )
 
-    commandOptions :: Parser Opts
-    commandOptions =
-      Opts
-        <$> subparser
-          ( nowCommand
-              <> elapseCommand
-          )
+    nowCommand :: Mod CommandFields Command
+    nowCommand =
+      command
+        "now"
+        ( info
+            (nowOptions <**> helper)
+            (progDesc "Prints the current time in the specified format (default format is unix)")
+        )
       where
-        formatOptions :: Parser (Maybe Format)
-        formatOptions = optional $ unixFormat <|> isoFormat
-          where
-            unixFormat :: Parser Format
-            unixFormat =
-              flag'
-                Unix
-                (long "unix" <> help "unix format")
+        nowOptions :: Parser Command
+        nowOptions = Now <$> formatOptions
 
-            isoFormat :: Parser Format
-            isoFormat =
-              flag'
-                ISO8601
-                ( long "iso8601"
-                    <> long "iso"
-                    <> help "ISO 8601 format"
-                )
+    elapseCommand :: Mod CommandFields Command
+    elapseCommand =
+      command
+        "elapse"
+        ( info
+            (elapseOptions <**> helper)
+            (progDesc "Prints the elapse time from a given offset in the specified format (default format is unix)")
+        )
+      where
+        elapseOptions :: Parser Command
+        elapseOptions =
+          Elapse
+            <$> formatOptions
+            <*> offsetOptions
 
-        nowCommand :: Mod CommandFields Command
-        nowCommand =
-          command
-            "now"
-            ( info
-                (nowOptions <**> helper)
-                (progDesc "Prints the current time in the specified format (default format is unix)")
-            )
-          where
-            nowOptions :: Parser Command
-            nowOptions = Now <$> formatOptions
-
-        elapseCommand :: Mod CommandFields Command
-        elapseCommand =
-          command
-            "elapse"
-            ( info
-                (elapseOptions <**> helper)
-                (progDesc "Prints the elapse time from a given offset in the specified format (default format is unix)")
-            )
-          where
-            elapseOptions :: Parser Command
-            elapseOptions = Elapse <$> formatOptions <*> offsetOptions
-
-            offsetOptions :: Parser ElapseOffset
-            offsetOptions =
-              ElapseOffset
-                <$> dayOffset
-                <*> hourOffset
-                <*> minuteOffset
-                <*> secondOffset
-
-            dayOffset :: Parser (Maybe Integer)
-            dayOffset =
-              optional . option auto $
-                ( long "day"
-                    <> long "dy"
-                    <> short 'd'
-                    <> metavar "DAY_OFFSET"
-                    <> help "number of days relative to the current time"
-                )
-
-            hourOffset :: Parser (Maybe Integer)
-            hourOffset =
-              optional . option auto $
-                ( long "hour"
-                    <> long "hr"
-                    <> short 'h'
-                    <> metavar "HOUR_OFFSET"
-                    <> help "number of hours relative to the current time"
-                )
-            minuteOffset :: Parser (Maybe Integer)
-            minuteOffset =
-              optional . option auto $
-                ( long "minute"
-                    <> long "min"
-                    <> short 'm'
-                    <> metavar "MINUTE_OFFSET"
-                    <> help "number of minutes relative to the current time"
-                )
-
-            secondOffset :: Parser (Maybe Integer)
-            secondOffset =
-              optional . option auto $
-                ( long "second"
-                    <> long "sec"
-                    <> short 's'
-                    <> metavar "SECOND_OFFSET"
-                    <> help "number of seconds relative to the current time"
-                )
-
-    formatUnixSeconds :: Maybe Format -> Unix.Unix -> String
-    formatUnixSeconds Nothing = Unix.toUnixString
-    formatUnixSeconds (Just Unix) = Unix.toUnixString
-    formatUnixSeconds (Just ISO8601) = Unix.toISO8601String
+    rangeCommand :: Mod CommandFields Command
+    rangeCommand =
+      command
+        "range"
+        ( info
+            (rangeOptions <**> helper)
+            (progDesc "Prints a range of time starting from a timestamp (unix seconds) and stepped over with a specific value")
+        )
+      where
+        rangeOptions :: Parser Command
+        rangeOptions =
+          Range
+            <$> formatOptions
+            <*> timestampOptions
+            <*> takeOptions
+            <*> stepOptions
 
     execNow :: Maybe Format -> IO ()
-    execNow format = Unix.now >>= putStrLn . formatUnixSeconds format
+    execNow format = displayTime =<< UNIX.now
+      where
+        displayTime = putStrLn . formatUNIXSeconds format
 
-    execElapse :: Maybe Format -> ElapseOffset -> IO ()
-    execElapse format offset = Unix.elapse totalOffset >>= putStrLn . formatUnixSeconds format
+    execElapse :: Maybe Format -> Offset -> IO ()
+    execElapse format offset = displayTime =<< getTime offset
+      where
+        getTime = UNIX.elapse . offsetToSeconds
+        displayTime = putStrLn . formatUNIXSeconds format
+
+    execRange :: Maybe Format -> TimeStamp -> Take -> Step -> IO ()
+    execRange format (TimeStamp ts) (Take n) (Step s) = displayTime t
+      where
+        t = UNIX.range (realToFrac ts) n s
+        displayTime = putStrLn . List.intercalate "\n" . map (formatUNIXSeconds format)
+
+    formatUNIXSeconds :: Maybe Format -> UNIX.UNIXTime -> String
+    formatUNIXSeconds Nothing = UNIX.toUNIXString
+    formatUNIXSeconds (Just UNIX) = UNIX.toUNIXString
+    formatUNIXSeconds (Just ISO8601) = UNIX.toISO8601String
+
+    offsetToSeconds :: Offset -> UNIX.UNIXTime
+    offsetToSeconds offset = totalOffset
       where
         secondsWeight = 1
         minutesWeight = secondsWeight * 60
@@ -175,3 +154,105 @@ run = do
         offsetPairs = zip offsetCoeffs [secondsWeight, minutesWeight, hoursWeight, daysWeight]
         offsetValues = map (uncurry (*)) offsetPairs
         totalOffset = realToFrac . sum $ offsetValues
+
+formatOptions :: Parser (Maybe Format)
+formatOptions = optional $ unixFormat <|> isoFormat
+  where
+    unixFormat :: Parser Format
+    unixFormat =
+      flag'
+        UNIX
+        (long "unix" <> help "unix format")
+
+    isoFormat :: Parser Format
+    isoFormat =
+      flag'
+        ISO8601
+        ( long "iso8601"
+            <> long "iso"
+            <> help "ISO 8601 format"
+        )
+
+offsetOptions :: Parser Offset
+offsetOptions =
+  Offset
+    <$> optional dayOffset
+    <*> optional hourOffset
+    <*> optional minuteOffset
+    <*> optional secondOffset
+  where
+    dayOffset :: Parser Integer
+    dayOffset =
+      option
+        auto
+        ( long "day"
+            <> long "dy"
+            <> short 'd'
+            <> metavar "DAY_OFFSET"
+            <> help "number of days relative to the current time"
+        )
+
+    hourOffset :: Parser Integer
+    hourOffset =
+      option
+        auto
+        ( long "hour"
+            <> long "hr"
+            <> short 'h'
+            <> metavar "HOUR_OFFSET"
+            <> help "number of hours relative to the current time"
+        )
+    minuteOffset :: Parser Integer
+    minuteOffset =
+      option
+        auto
+        ( long "minute"
+            <> long "min"
+            <> short 'm'
+            <> metavar "MINUTE_OFFSET"
+            <> help "number of minutes relative to the current time"
+        )
+
+    secondOffset :: Parser Integer
+    secondOffset =
+      option
+        auto
+        ( long "second"
+            <> long "sec"
+            <> short 's'
+            <> metavar "SECOND_OFFSET"
+            <> help "number of seconds relative to the current time"
+        )
+
+takeOptions :: Parser Take
+takeOptions =
+  Take
+    <$> option
+      auto
+      ( long "take"
+          <> short 't'
+          <> metavar "TAKE_AMOUNT"
+          <> help "number of values to take"
+      )
+
+timestampOptions :: Parser TimeStamp
+timestampOptions =
+  TimeStamp
+    <$> option
+      auto
+      ( long "timestamp"
+          <> long "ts"
+          <> metavar "TIMESTAMP"
+          <> help "timestamp"
+      )
+
+stepOptions :: Parser Step
+stepOptions =
+  Step
+    <$> option
+      auto
+      ( long "step"
+          <> short 's'
+          <> metavar "STEP"
+          <> help "value to be stepped over in seconds"
+      )
