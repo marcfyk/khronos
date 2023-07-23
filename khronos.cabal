@@ -54,14 +54,32 @@ common warnings
     ghc-options: -Wall
 
 library
-  hs-source-dirs: src
-  exposed-modules:
-    CLI,
-    UNIX,
-  build-depends:
-    base ^>=4.16.4.0,
-    optparse-applicative ^>=0.18.1.0,
-    time,
+    hs-source-dirs: src
+    exposed-modules:
+        CLI,
+        Time,
+    build-depends:
+        base ^>=4.16.4.0,
+        optparse-applicative ^>=0.18.1.0,
+        text,
+        time,
+    default-language: Haskell2010
+
+test-suite test
+    hs-source-dirs: test
+    type: exitcode-stdio-1.0
+    main-is: Spec.hs
+    build-depends:
+        base,
+        khronos,
+        text,
+        time,
+        hspec,
+        QuickCheck,
+    build-tool-depends: hspec-discover:hspec-discover
+    other-modules:
+        TimeSpec,
+    default-language: Haskell2010
 
 executable khronos
     -- Import common warning flags.

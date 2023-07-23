@@ -1,7 +1,10 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module CLI where
 
-import qualified Data.List as List
 import qualified Data.Maybe as Maybe
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Options.Applicative
   ( CommandFields,
     Mod,
@@ -26,37 +29,32 @@ import Options.Applicative
     (<**>),
     (<|>),
   )
-import qualified UNIX
+import qualified Time
 
 newtype Opts = Opts {optCommand :: Command}
 
 data Command
   = Now (Maybe Format)
-  | Elapse (Maybe Format) Offset
-  | Range (Maybe Format) TimeStamp Take Step
-  | Seconds Quantity
+  | Elapse (Maybe Format) Interval
+  | Range (Maybe Format) TimeStamp Take Interval
+  | Seconds Interval
 
-data Format = UNIX | ISO8601
+data Format
+  = UnixMS
+  | UnixS
+  | ISO8601
 
-data Offset = Offset
-  { secondOffset :: Maybe Integer,
-    minuteOffset :: Maybe Integer,
-    hourOffset :: Maybe Integer,
-    dayOffset :: Maybe Integer
-  }
-
-data Quantity = Quantity
-  { secondQty :: Maybe Integer,
-    minuteQty :: Maybe Integer,
-    hourQty :: Maybe Integer,
-    dayQty :: Maybe Integer
+data Interval = Interval
+  { milliseconds :: Maybe Integer,
+    seconds :: Maybe Integer,
+    minutes :: Maybe Integer,
+    hours :: Maybe Integer,
+    days :: Maybe Integer
   }
 
 newtype Take = Take Integer
 
 newtype TimeStamp = TimeStamp Integer
-
-newtype Step = Step Integer
 
 run :: IO ()
 run = do
@@ -65,7 +63,6 @@ run = do
     Now format -> execNow format
     Elapse format offset -> execElapse format offset
     Range format ts t step -> execRange format ts t step
-    Seconds qty -> execSeconds qty
   where
     commandOptions :: Parser Opts
     commandOptions =
@@ -74,7 +71,6 @@ run = do
           ( nowCommand
               <> elapseCommand
               <> rangeCommand
-              <> secondsCommand
           )
 
     optsParser :: ParserInfo Opts
@@ -111,7 +107,7 @@ run = do
         elapseOptions =
           Elapse
             <$> formatOptions
-            <*> offsetOptions
+            <*> intervalOptions
 
     rangeCommand :: Mod CommandFields Command
     rangeCommand =
@@ -128,82 +124,62 @@ run = do
             <$> formatOptions
             <*> timestampOptions
             <*> takeOptions
-            <*> stepOptions
-
-    secondsCommand :: Mod CommandFields Command
-    secondsCommand =
-      command
-        "seconds"
-        ( info
-            (secondsOptions <**> helper)
-            (progDesc "Prints the number of seconds")
-        )
-      where
-        secondsOptions :: Parser Command
-        secondsOptions = Seconds <$> quantityOptions
+            <*> intervalOptions
 
     execNow :: Maybe Format -> IO ()
-    execNow format = displayTime =<< UNIX.now
-      where
-        displayTime = putStrLn . formatUNIXSeconds format
+    execNow format = TIO.putStrLn . formatUnixSeconds format =<< Time.now
 
-    execElapse :: Maybe Format -> Offset -> IO ()
-    execElapse format offset = displayTime =<< getTime offset
-      where
-        getTime = UNIX.elapse . offsetToSeconds
-        displayTime = putStrLn . formatUNIXSeconds format
+    execElapse :: Maybe Format -> Interval -> IO ()
+    execElapse format interval =
+      TIO.putStrLn
+        . formatUnixSeconds format
+        . Time.elapse (convertInterval interval)
+        =<< Time.now
 
-    execRange :: Maybe Format -> TimeStamp -> Take -> Step -> IO ()
-    execRange format (TimeStamp ts) (Take n) (Step s) = displayTime t
-      where
-        t = UNIX.range (realToFrac ts) n s
-        displayTime = putStrLn . List.intercalate "\n" . map (formatUNIXSeconds format)
+    execRange :: Maybe Format -> TimeStamp -> Take -> Interval -> IO ()
+    execRange format (TimeStamp ts) (Take n) =
+      TIO.putStrLn
+        . T.intercalate "\n"
+        . map (formatUnixSeconds format)
+        . Time.range (realToFrac ts) n
+        . convertInterval
 
-    execSeconds :: Quantity -> IO ()
-    execSeconds = putStrLn . formatUNIXSeconds Nothing . quantityToSeconds
+    formatUnixSeconds :: Maybe Format -> Time.UnixTime -> T.Text
+    formatUnixSeconds Nothing = Time.toText Time.UnixMS
+    formatUnixSeconds (Just UnixMS) = Time.toText Time.UnixMS
+    formatUnixSeconds (Just UnixS) = Time.toText Time.UnixS
+    formatUnixSeconds (Just ISO8601) = Time.toText Time.ISO8601
 
-    formatUNIXSeconds :: Maybe Format -> UNIX.UNIXTime -> String
-    formatUNIXSeconds Nothing = UNIX.toUNIXString
-    formatUNIXSeconds (Just UNIX) = UNIX.toUNIXString
-    formatUNIXSeconds (Just ISO8601) = UNIX.toISO8601String
-
-    calculateUNIXTime :: [Integer] -> [Integer] -> UNIX.UNIXTime
-    calculateUNIXTime weights coeffs = t
-      where
-        pairs = zip coeffs weights
-        values = map (uncurry (*)) pairs
-        t = realToFrac . sum $ values
-
-    offsetToSeconds :: Offset -> UNIX.UNIXTime
-    offsetToSeconds (Offset s m h d) = totalOffset
-      where
-        secondsWeight = 1
-        minutesWeight = secondsWeight * 60
-        hoursWeight = minutesWeight * 60
-        daysWeight = hoursWeight * 24
-        weights = [secondsWeight, minutesWeight, hoursWeight, daysWeight]
-        coeffs = map (Maybe.fromMaybe 0) [s, m, h, d]
-        totalOffset = calculateUNIXTime weights coeffs
-
-    quantityToSeconds :: Quantity -> UNIX.UNIXTime
-    quantityToSeconds (Quantity s m h d) = totalQty
-      where
-        secondsWeight = 1
-        minutesWeight = secondsWeight * 60
-        hoursWeight = minutesWeight * 60
-        daysWeight = hoursWeight * 24
-        weights = [secondsWeight, minutesWeight, hoursWeight, daysWeight]
-        coeffs = map (Maybe.fromMaybe 0) [s, m, h, d]
-        totalQty = calculateUNIXTime weights coeffs
+    convertInterval :: Interval -> [Time.Interval]
+    convertInterval (Interval ms s m h d) =
+      zipWith
+        Time.Interval
+        [Time.Millisecond, Time.Second, Time.Minute, Time.Hour, Time.Day]
+        (map (Maybe.fromMaybe 0) [s, m, h, d])
 
 formatOptions :: Parser (Maybe Format)
-formatOptions = optional $ unixFormat <|> isoFormat
+formatOptions =
+  optional $
+    unixMSFormat
+      <|> unixSFormat
+      <|> isoFormat
   where
-    unixFormat :: Parser Format
-    unixFormat =
+    unixMSFormat :: Parser Format
+    unixMSFormat =
       flag'
-        UNIX
-        (long "unix" <> help "unix format")
+        UnixMS
+        ( long "unix-ms"
+            <> long "unix"
+            <> help "unix format (milliseconds)"
+        )
+
+    unixSFormat :: Parser Format
+    unixSFormat =
+      flag'
+        UnixS
+        ( long "unix-s"
+            <> help "unix format (seconds)"
+        )
 
     isoFormat :: Parser Format
     isoFormat =
@@ -214,21 +190,31 @@ formatOptions = optional $ unixFormat <|> isoFormat
             <> help "ISO 8601 format"
         )
 
-offsetOptions :: Parser Offset
-offsetOptions =
-  Offset
-    <$> optional days
-    <*> optional hours
-    <*> optional minutes
+intervalOptions :: Parser Interval
+intervalOptions =
+  Interval
+    <$> optional milliseconds
     <*> optional seconds
+    <*> optional minutes
+    <*> optional hours
+    <*> optional days
   where
+    milliseconds :: Parser Integer
+    milliseconds =
+      option
+        auto
+        ( long "milliseconds"
+            <> long "ms"
+            <> metavar "MILLISECOND_OFFSET"
+            <> help "number of milliseconds relative to the current time"
+        )
+
     seconds :: Parser Integer
     seconds =
       option
         auto
         ( long "second"
             <> long "sec"
-            <> short 's'
             <> metavar "SECOND_OFFSET"
             <> help "number of seconds relative to the current time"
         )
@@ -239,7 +225,6 @@ offsetOptions =
         auto
         ( long "minute"
             <> long "min"
-            <> short 'm'
             <> metavar "MINUTE_OFFSET"
             <> help "number of minutes relative to the current time"
         )
@@ -250,7 +235,6 @@ offsetOptions =
         auto
         ( long "hour"
             <> long "hr"
-            <> short 'h'
             <> metavar "HOUR_OFFSET"
             <> help "number of hours relative to the current time"
         )
@@ -261,60 +245,8 @@ offsetOptions =
         auto
         ( long "day"
             <> long "dy"
-            <> short 'd'
             <> metavar "DAY_OFFSET"
             <> help "number of days relative to the current time"
-        )
-
-quantityOptions :: Parser Quantity
-quantityOptions =
-  Quantity
-    <$> optional seconds
-    <*> optional minutes
-    <*> optional hours
-    <*> optional days
-  where
-    seconds :: Parser Integer
-    seconds =
-      option
-        auto
-        ( long "second"
-            <> long "sec"
-            <> short 's'
-            <> metavar "SECOND_QTY"
-            <> help "number of seconds"
-        )
-
-    hours :: Parser Integer
-    hours =
-      option
-        auto
-        ( long "hour"
-            <> long "hr"
-            <> short 'h'
-            <> metavar "HOUR_QTY"
-            <> help "number of hours"
-        )
-
-    minutes :: Parser Integer
-    minutes =
-      option
-        auto
-        ( long "minute"
-            <> long "min"
-            <> short 'm'
-            <> metavar "MINUTE_QTY"
-            <> help "number of minutes"
-        )
-    days :: Parser Integer
-    days =
-      option
-        auto
-        ( long "day"
-            <> long "dy"
-            <> short 'd'
-            <> metavar "DAY_QTY"
-            <> help "number of days"
         )
 
 takeOptions :: Parser Take
@@ -337,15 +269,4 @@ timestampOptions =
           <> long "ts"
           <> metavar "TIMESTAMP"
           <> help "timestamp"
-      )
-
-stepOptions :: Parser Step
-stepOptions =
-  Step
-    <$> option
-      auto
-      ( long "step"
-          <> short 's'
-          <> metavar "STEP"
-          <> help "value to be stepped over in seconds"
       )
