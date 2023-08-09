@@ -16,4 +16,4 @@ jobs:
         run: cabal build all
 
       - name: Run tests
-        run: cabal test all
+        run: cabal test --test-show-details=direct

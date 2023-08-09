@@ -15,8 +15,13 @@ import qualified Time
 instance QC.Arbitrary Time.UnixTime where
   arbitrary = (realToFrac :: Double -> Time.UnixTime) <$> (QC.arbitrary :: QC.Gen Double)
 
+instance QC.Arbitrary Time.UNIXPrecision where
+  arbitrary = QC.oneof . map return $ [Time.MS, Time.S]
+
 instance QC.Arbitrary Time.Format where
-  arbitrary = QC.oneof . map return $ [Time.UnixMS, Time.UnixS, Time.ISO8601]
+  arbitrary = QC.oneof [Time.UNIX <$> unixPrecision, return Time.ISO8601]
+    where
+      unixPrecision = QC.arbitrary :: QC.Gen Time.UNIXPrecision
 
 instance QC.Arbitrary Time.Unit where
   arbitrary = QC.oneof . map return $ [Time.Second, Time.Minute, Time.Hour, Time.Day]
@@ -37,12 +42,12 @@ spec = do
 toTextSpec :: H.Spec
 toTextSpec = H.describe "toText" $ do
   H.describe "it should display the time in the correct format" $ do
-    H.describe "when format: UnixMS" $ do
+    H.describe "when format: UNIX MS" $ do
       HQC.prop "should return the whole number of x shifted by 10^3" $ \x ->
-        Time.toText Time.UnixMS x `H.shouldBe` (toWholeNumberAsText . (* 1000) $ x)
-    H.describe "when format: UnixS" $ do
+        Time.toText (Time.UNIX Time.MS) x `H.shouldBe` (toWholeNumberAsText . (* 1000) $ x)
+    H.describe "when format: UNIX S" $ do
       HQC.prop "should return the whole number of x" $ \x ->
-        Time.toText Time.UnixS x `H.shouldBe` toWholeNumberAsText x
+        Time.toText (Time.UNIX Time.S) x `H.shouldBe` toWholeNumberAsText x
     H.describe "when  format: ISO8601" $ do
       HQC.prop "should return the default ISO8601 representation of x" $ \x ->
         Time.toText Time.ISO8601 x `H.shouldBe` toDefaultISO x

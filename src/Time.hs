@@ -6,15 +6,16 @@ import qualified Data.Time.Format.ISO8601 as ISO8601
 
 type UnixTime = POSIX.POSIXTime
 
+data UNIXPrecision = MS | S deriving (Show)
+
 data Format
-  = UnixMS
-  | UnixS
+  = UNIX UNIXPrecision
   | ISO8601
   deriving (Show)
 
 toText :: Format -> UnixTime -> T.Text
-toText UnixS = T.pack . show . (round :: (POSIX.POSIXTime -> Integer))
-toText UnixMS = toText UnixS . (* 1000)
+toText (UNIX S) = T.pack . show . (round :: (POSIX.POSIXTime -> Integer))
+toText (UNIX MS) = toText (UNIX S) . (* 1000)
 toText ISO8601 = T.pack . ISO8601.iso8601Show . POSIX.posixSecondsToUTCTime
 
 data Unit
