@@ -45,7 +45,7 @@ data Config = Config
   { defaultFormat :: Format,
     unixConfig :: UNIXConfig
   }
-  deriving (Generics.Generic, Show)
+  deriving (Generics.Generic, Show, Eq)
 
 instance A.FromJSON Config where
   parseJSON = A.withObject "Config" $ \v ->
@@ -63,7 +63,7 @@ data Config' = Config'
   { defaultFormat' :: Maybe Format,
     unixConfig' :: Maybe UNIXConfig'
   }
-  deriving (Generics.Generic, Show)
+  deriving (Generics.Generic, Show, Eq)
 
 instance A.FromJSON Config' where
   parseJSON = A.withObject "Config'" $ \v -> Config' <$> v A..:? "default_format" <*> v A..:? "unix"
@@ -72,7 +72,7 @@ instance A.ToJSON Config' where
   toJSON (Config' format' unix') = A.object ["default_format" A..= format', "unix" A..= unix']
   toEncoding (Config' format' unix') = A.pairs ("default_format" A..= format' <> "unix" A..= unix')
 
-data Format = UNIX | ISO8601 deriving (Generics.Generic, Show)
+data Format = UNIX | ISO8601 deriving (Generics.Generic, Show, Eq)
 
 instance A.FromJSON Format where
   parseJSON (A.String "unix") = return UNIX
@@ -86,7 +86,7 @@ instance A.ToJSON Format where
 newtype UNIXConfig = UNIXConfig
   { precision :: UNIXPrecision
   }
-  deriving (Generics.Generic, Show)
+  deriving (Generics.Generic, Show, Eq)
 
 instance A.FromJSON UNIXConfig where
   parseJSON = A.withObject "UNIXConfig" $ \v -> UNIXConfig <$> v A..: "precision"
@@ -98,7 +98,7 @@ instance A.ToJSON UNIXConfig where
 newtype UNIXConfig' = UNIXConfig'
   { precision' :: Maybe UNIXPrecision
   }
-  deriving (Generics.Generic, Show)
+  deriving (Generics.Generic, Show, Eq)
 
 instance A.FromJSON UNIXConfig' where
   parseJSON = A.withObject "UNIXConfig'" $ \v -> UNIXConfig' <$> v A..: "precision"
@@ -107,7 +107,7 @@ instance A.ToJSON UNIXConfig' where
   toJSON (UNIXConfig' precision') = A.object ["precision" A..= precision']
   toEncoding (UNIXConfig' precision') = A.pairs ("precision" A..= precision')
 
-data UNIXPrecision = MS | S deriving (Generics.Generic, Show)
+data UNIXPrecision = MS | S deriving (Generics.Generic, Show, Eq)
 
 instance A.FromJSON UNIXPrecision where
   parseJSON (A.String "ms") = return MS
@@ -152,19 +152,18 @@ getConfig' = do
     [] -> return . Left $ NoFile
     (fp : _) -> do
       decoded <- fmap A.eitherDecode . BS.readFile $ fp
-      case decoded of
-        Left err -> do
-          return . Left . InvalidFile fp $ err
-        Right conf -> return . Right $ (fp, conf)
+      return $ case decoded of
+        Left err -> Left . InvalidFile fp $ err
+        Right conf -> Right (fp, conf)
 
 fromConfig' :: Config' -> Config
 fromConfig' c' = c
   where
     c = Config format unix
-    format = Maybe.fromMaybe UNIX c'.defaultFormat'
+    format = Maybe.fromMaybe defaultConfig.defaultFormat c'.defaultFormat'
     unix = UNIXConfig p
       where
-        p = Maybe.fromMaybe MS (precision' =<< c'.unixConfig')
+        p = Maybe.fromMaybe defaultConfig.unixConfig.precision (precision' =<< c'.unixConfig')
 
 getConfig :: IO (Either NoConfig FilePath, Config)
 getConfig = do
