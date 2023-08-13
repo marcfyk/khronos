@@ -4,6 +4,17 @@
 
 Khronos is a CLI tool for calculating timestamps.
 
+## Time Formats
+
+In many of khronos' commands, it will be common use case to format time.
+
+
+Khronos supports three ways of formatting time:
+- UNIX/POSIX (`-u | --unix`)
+- ISO8601 (`--iso | --iso8601`)
+- Custom string formatting (`-f | --format`)
+    - example: "%Y-%m-%d %H:%M:%S"
+
 ## Commands
 
 Khronos has a top level help command `--help` / `-h` to display the command options.
