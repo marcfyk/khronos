@@ -2,21 +2,30 @@ module Time where
 
 import qualified Data.Text as T
 import qualified Data.Time.Clock.POSIX as POSIX
+import qualified Data.Time.Format as TF
 import qualified Data.Time.Format.ISO8601 as ISO8601
 
-type UnixTime = POSIX.POSIXTime
+type UNIXTime = POSIX.POSIXTime
 
 data UNIXPrecision = MS | S deriving (Show)
 
 data Format
   = UNIX UNIXPrecision
   | ISO8601
+  | Custom String
   deriving (Show)
 
-toText :: Format -> UnixTime -> T.Text
+toText :: Format -> UNIXTime -> T.Text
 toText (UNIX S) = T.pack . show . (round :: (POSIX.POSIXTime -> Integer))
 toText (UNIX MS) = toText (UNIX S) . (* 1000)
-toText ISO8601 = T.pack . ISO8601.iso8601Show . POSIX.posixSecondsToUTCTime
+toText ISO8601 =
+  T.pack
+    . ISO8601.iso8601Show
+    . POSIX.posixSecondsToUTCTime
+toText (Custom f) =
+  T.pack
+    . TF.formatTime TF.defaultTimeLocale f
+    . POSIX.posixSecondsToUTCTime
 
 data Unit
   = Millisecond
@@ -26,7 +35,7 @@ data Unit
   | Day
   deriving (Show)
 
-unixCoeff :: Unit -> UnixTime
+unixCoeff :: Unit -> UNIXTime
 unixCoeff Millisecond = 0.001
 unixCoeff Second = 1000 * unixCoeff Millisecond
 unixCoeff Minute = 60 * unixCoeff Second
@@ -39,16 +48,16 @@ data Interval = Interval
   }
   deriving (Show)
 
-intervalToUnixCoeff :: Interval -> UnixTime
+intervalToUnixCoeff :: Interval -> UNIXTime
 intervalToUnixCoeff (Interval unit coeff) = unixCoeff unit * realToFrac coeff
 
-elapse :: [Interval] -> UnixTime -> UnixTime
+elapse :: [Interval] -> UNIXTime -> UNIXTime
 elapse = (+) . sum . map intervalToUnixCoeff
 
 now :: IO POSIX.POSIXTime
 now = POSIX.getPOSIXTime
 
-range :: UnixTime -> Integer -> [Interval] -> [UnixTime]
+range :: UNIXTime -> Integer -> [Interval] -> [UNIXTime]
 range ts n timeUnits = take (fromIntegral n) [ts, ts + step ..]
   where
     step = sum . map intervalToUnixCoeff $ timeUnits

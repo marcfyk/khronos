@@ -28,6 +28,7 @@ import Options.Applicative
     optional,
     progDesc,
     short,
+    strOption,
     subparser,
     (<**>),
     (<|>),
@@ -50,6 +51,7 @@ data FormatUNIX = FormatUNIX
 data Format
   = UNIX FormatUNIX (Maybe UNIXPrecision)
   | ISO8601
+  | Custom String
 
 data Interval = Interval
   { milliseconds :: Maybe Integer,
@@ -149,7 +151,7 @@ runParser env = execParser optsParser
             <*> intervalOptions
 
     formatOptions :: Parser (Maybe Format)
-    formatOptions = optional $ unixParser <|> isoParser
+    formatOptions = optional $ unixParser <|> isoParser <|> customParser
       where
         unixParser :: Parser Format
         unixParser = UNIX <$> formatUNIXParser <*> unixPrecisionParser
@@ -174,6 +176,16 @@ runParser env = execParser optsParser
                 <> long "iso"
                 <> help "ISO8601 format"
             )
+
+        customParser :: Parser Format
+        customParser =
+          Custom
+            <$> strOption
+              ( long "format"
+                  <> short 'f'
+                  <> metavar "FORMAT"
+                  <> help "format for representing time, eg: %Y-%m-%d %H:%M:%S"
+              )
 
     intervalOptions :: Parser Interval
     intervalOptions =
@@ -272,7 +284,7 @@ runCommands env (Range format (TimeStamp ts) (Take n) interval) =
     . convertInterval
     $ interval
 
-formatUNIXSeconds :: Env.Env -> Maybe Format -> Time.UnixTime -> T.Text
+formatUNIXSeconds :: Env.Env -> Maybe Format -> Time.UNIXTime -> T.Text
 formatUNIXSeconds env format = Time.toText selectedFormat
   where
     selectedFormat = case format of
@@ -280,6 +292,7 @@ formatUNIXSeconds env format = Time.toText selectedFormat
       Just (UNIX _ (Just S)) -> Time.UNIX Time.S
       Just (UNIX _ Nothing) -> Time.UNIX defaultPrecision
       Just ISO8601 -> Time.ISO8601
+      Just (Custom f) -> Time.Custom f
       Nothing -> defaultFormat
 
     defaultPrecision = case env.config.unixConfig.precision of

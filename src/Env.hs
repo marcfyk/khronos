@@ -72,16 +72,22 @@ instance A.ToJSON Config' where
   toJSON (Config' format' unix') = A.object ["default_format" A..= format', "unix" A..= unix']
   toEncoding (Config' format' unix') = A.pairs ("default_format" A..= format' <> "unix" A..= unix')
 
-data Format = UNIX | ISO8601 deriving (Generics.Generic, Show, Eq)
+data Format
+  = UNIX
+  | ISO8601
+  | Custom String
+  deriving (Generics.Generic, Show, Eq)
 
 instance A.FromJSON Format where
   parseJSON (A.String "unix") = return UNIX
   parseJSON (A.String "iso8601") = return ISO8601
+  parseJSON (A.String s) = return . Custom . T.unpack $ s
   parseJSON _ = fail "format should be \"unix\" | \"iso8601\""
 
 instance A.ToJSON Format where
   toJSON UNIX = A.String "unix"
   toJSON ISO8601 = A.String "iso8601"
+  toJSON (Custom s) = A.String . T.pack $ s
 
 newtype UNIXConfig = UNIXConfig
   { precision :: UNIXPrecision
