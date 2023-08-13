@@ -12,8 +12,8 @@ import qualified Test.Hspec.QuickCheck as HQC
 import qualified Test.QuickCheck as QC
 import qualified Time
 
-instance QC.Arbitrary Time.UnixTime where
-  arbitrary = (realToFrac :: Double -> Time.UnixTime) <$> (QC.arbitrary :: QC.Gen Double)
+instance QC.Arbitrary Time.UNIXTime where
+  arbitrary = (realToFrac :: Double -> Time.UNIXTime) <$> (QC.arbitrary :: QC.Gen Double)
 
 instance QC.Arbitrary Time.UNIXPrecision where
   arbitrary = QC.oneof . map return $ [Time.MS, Time.S]
@@ -52,9 +52,9 @@ toTextSpec = H.describe "toText" $ do
       HQC.prop "should return the default ISO8601 representation of x" $ \x ->
         Time.toText Time.ISO8601 x `H.shouldBe` toDefaultISO x
   where
-    toWholeNumberAsText :: Time.UnixTime -> T.Text
-    toWholeNumberAsText = T.pack . show . (round :: Time.UnixTime -> Integer)
-    toDefaultISO :: Time.UnixTime -> T.Text
+    toWholeNumberAsText :: Time.UNIXTime -> T.Text
+    toWholeNumberAsText = T.pack . show . (round :: Time.UNIXTime -> Integer)
+    toDefaultISO :: Time.UNIXTime -> T.Text
     toDefaultISO = T.pack . ISO8601.iso8601Show . POSIX.posixSecondsToUTCTime
 
 unixCoeffSpec :: H.Spec
