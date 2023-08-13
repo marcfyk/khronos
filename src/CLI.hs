@@ -184,7 +184,7 @@ runParser env = execParser optsParser
               ( long "format"
                   <> short 'f'
                   <> metavar "FORMAT"
-                  <> help "format for representing time, eg: %Y-%m-%d %H:%M:%S"
+                  <> help "format for representing time, example: %Y-%m-%d %H:%M:%S"
               )
 
     intervalOptions :: Parser Interval
