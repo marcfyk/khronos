@@ -4,6 +4,7 @@
 module CLI where
 
 import Data.Char (GeneralCategory (Format))
+import qualified Data.Char as Time
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -40,16 +41,13 @@ newtype Opts = Opts {optCommand :: Command}
 data Command
   = Env
   | Now (Maybe Format)
-  | Elapse (Maybe Format) Interval
-  | Range (Maybe Format) TimeStamp Take Interval
+  | Elapse (Maybe Format) (Maybe TimeStamp) Interval
+  | Range (Maybe Format) (Maybe TimeStamp) Take Interval
   | Seconds Interval
 
-data UNIXPrecision = MS | S deriving (Show)
-
-data FormatUNIX = FormatUNIX
-
 data Format
-  = UNIX FormatUNIX (Maybe UNIXPrecision)
+  = UNIXS
+  | UNIXMS
   | ISO8601
   | Custom String
 
@@ -63,7 +61,9 @@ data Interval = Interval
 
 newtype Take = Take Integer
 
-newtype TimeStamp = TimeStamp Integer
+data TimeStamp
+  = TSUNIX Integer
+  | TSNow
 
 run :: IO ()
 run = do
@@ -131,6 +131,7 @@ runParser env = execParser optsParser
         elapseOptions =
           Elapse
             <$> formatOptions
+            <*> timestampOptions
             <*> intervalOptions
 
     rangeCommand :: Mod CommandFields Command
@@ -151,22 +152,13 @@ runParser env = execParser optsParser
             <*> intervalOptions
 
     formatOptions :: Parser (Maybe Format)
-    formatOptions = optional $ unixParser <|> isoParser <|> customParser
+    formatOptions = optional $ unixSParser <|> unixMSParser <|> isoParser <|> customParser
       where
-        unixParser :: Parser Format
-        unixParser = UNIX <$> formatUNIXParser <*> unixPrecisionParser
+        unixSParser :: Parser Format
+        unixSParser = flag' UNIXS (long "unix-s" <> help "unix format in seconds")
 
-        formatUNIXParser :: Parser FormatUNIX
-        formatUNIXParser = flag' FormatUNIX (long "unix" <> short 'u' <> help "unix format")
-
-        unixPrecisionParser :: Parser (Maybe UNIXPrecision)
-        unixPrecisionParser = optional $ msParser <|> sParser
-          where
-            msParser :: Parser UNIXPrecision
-            msParser = flag' MS (long "ms" <> short 'm' <> help "milliseconds (ms)")
-
-            sParser :: Parser UNIXPrecision
-            sParser = flag' S (long "s" <> short 's' <> help "seconds (s)")
+        unixMSParser :: Parser Format
+        unixMSParser = flag' UNIXMS (long "unix-ms" <> help "unix format in milliseconds")
 
         isoParser :: Parser Format
         isoParser =
@@ -212,6 +204,7 @@ runParser env = execParser optsParser
             auto
             ( long "second"
                 <> long "sec"
+                <> short 'S'
                 <> metavar "SECOND_OFFSET"
                 <> help "number of seconds relative to the current time"
             )
@@ -222,6 +215,7 @@ runParser env = execParser optsParser
             auto
             ( long "minute"
                 <> long "min"
+                <> short 'M'
                 <> metavar "MINUTE_OFFSET"
                 <> help "number of minutes relative to the current time"
             )
@@ -232,6 +226,7 @@ runParser env = execParser optsParser
             auto
             ( long "hour"
                 <> long "hr"
+                <> short 'H'
                 <> metavar "HOUR_OFFSET"
                 <> help "number of hours relative to the current time"
             )
@@ -241,7 +236,7 @@ runParser env = execParser optsParser
           option
             auto
             ( long "day"
-                <> long "dy"
+                <> short 'd'
                 <> metavar "DAY_OFFSET"
                 <> help "number of days relative to the current time"
             )
@@ -257,40 +252,46 @@ runParser env = execParser optsParser
               <> help "number of values to take"
           )
 
-    timestampOptions :: Parser TimeStamp
-    timestampOptions =
-      TimeStamp
-        <$> option
-          auto
-          ( long "timestamp"
-              <> long "ts"
-              <> metavar "TIMESTAMP"
-              <> help "timestamp"
-          )
+    timestampOptions :: Parser (Maybe TimeStamp)
+    timestampOptions = optional $ unixParser <|> nowParser
+      where
+        unixParser =
+          TSUNIX
+            <$> option
+              auto
+              ( long "timestamp"
+                  <> long "ts"
+                  <> metavar "TIMESTAMP"
+                  <> help "timestamp"
+              )
+        nowParser = flag' TSNow (long "now" <> help "current timestamp")
 
 runCommands :: Env.Env -> Command -> IO ()
 runCommands env Env = TIO.putStrLn . Env.displayEnv $ env
 runCommands env (Now format) = TIO.putStrLn . formatUNIXSeconds env format =<< Time.now
-runCommands env (Elapse format interval) =
+runCommands env (Elapse format timestamp interval) =
   TIO.putStrLn
     . formatUNIXSeconds env format
     . Time.elapse (convertInterval interval)
     =<< Time.now
-runCommands env (Range format (TimeStamp ts) (Take n) interval) =
-  TIO.putStrLn
-    . T.intercalate "\n"
-    . map (formatUNIXSeconds env format)
-    . Time.range (realToFrac ts) n
-    . convertInterval
-    $ interval
+runCommands env (Range format timestamp (Take n) interval) = do
+  ts <- timeStampToUNIXOrNow timestamp
+  let tsRange = Time.range ts n . convertInterval $ interval
+  TIO.putStrLn . T.intercalate "\n" . map (formatUNIXSeconds env format) $ tsRange
+
+timeStampToUNIX :: TimeStamp -> IO Time.UNIXTime
+timeStampToUNIX (TSUNIX ts) = return . realToFrac $ ts
+timeStampToUNIX TSNow = Time.now
+
+timeStampToUNIXOrNow :: Maybe TimeStamp -> IO Time.UNIXTime
+timeStampToUNIXOrNow = Maybe.maybe Time.now timeStampToUNIX
 
 formatUNIXSeconds :: Env.Env -> Maybe Format -> Time.UNIXTime -> T.Text
 formatUNIXSeconds env format = Time.toText selectedFormat
   where
     selectedFormat = case format of
-      Just (UNIX _ (Just MS)) -> Time.UNIX Time.MS
-      Just (UNIX _ (Just S)) -> Time.UNIX Time.S
-      Just (UNIX _ Nothing) -> Time.UNIX defaultPrecision
+      Just UNIXMS -> Time.UNIX Time.MS
+      Just UNIXS -> Time.UNIX Time.S
       Just ISO8601 -> Time.ISO8601
       Just (Custom f) -> Time.Custom f
       Nothing -> defaultFormat
@@ -302,10 +303,11 @@ formatUNIXSeconds env format = Time.toText selectedFormat
     defaultFormat = case env.config.defaultFormat of
       Env.UNIX -> Time.UNIX defaultPrecision
       Env.ISO8601 -> Time.ISO8601
+      Env.Custom f -> Time.Custom f
 
 convertInterval :: Interval -> [Time.Interval]
 convertInterval (Interval ms s m h d) =
   zipWith
     Time.Interval
     [Time.Millisecond, Time.Second, Time.Minute, Time.Hour, Time.Day]
-    (map (Maybe.fromMaybe 0) [s, m, h, d])
+    (map (Maybe.fromMaybe 0) [ms, s, m, h, d])
