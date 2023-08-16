@@ -3,12 +3,13 @@
 
 module CLI where
 
-import Data.Char (GeneralCategory (Format))
+import qualified Config
 import qualified Data.Char as Time
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified Env
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Builder as TLB
 import Options.Applicative
   ( CommandFields,
     Mod,
@@ -35,6 +36,12 @@ import Options.Applicative
     (<|>),
   )
 import qualified Time
+
+data App = App
+  { configPath :: Either Config.NoConfig FilePath,
+    config :: Config.Config,
+    time :: Time.Time
+  }
 
 newtype Opts = Opts {optCommand :: Command}
 
@@ -67,13 +74,30 @@ data TimeStamp
 
 run :: IO ()
 run = do
-  env <- Env.getEnv
-  opts <- runParser env
+  (configPath, config) <- Config.load
+  let app = newApp configPath config
+  opts <- runParser
   let command = optCommand opts
-  runCommands env command
+  runCommands app command
 
-runParser :: Env.Env -> IO Opts
-runParser env = execParser optsParser
+newApp :: Either Config.NoConfig FilePath -> Config.Config -> App
+newApp configPath config = App configPath config time
+  where
+    unixPrecision = case Config.precision =<< config.unixConfig of
+      Nothing -> Time.MS
+      Just Config.MS -> Time.MS
+      Just Config.S -> Time.S
+
+    format = case config.format of
+      Nothing -> Time.UNIX unixPrecision
+      Just Config.UNIX -> Time.UNIX unixPrecision
+      Just Config.ISO8601 -> Time.ISO8601
+      Just (Config.Custom f) -> Time.Custom f
+
+    time = Time.Time format unixPrecision
+
+runParser :: IO Opts
+runParser = execParser optsParser
   where
     commandOptions :: Parser Opts
     commandOptions =
@@ -266,18 +290,47 @@ runParser env = execParser optsParser
               )
         nowParser = flag' TSNow (long "now" <> help "current timestamp")
 
-runCommands :: Env.Env -> Command -> IO ()
-runCommands env Env = TIO.putStrLn . Env.displayEnv $ env
-runCommands env (Now format) = TIO.putStrLn . formatUNIXSeconds env format =<< Time.now
-runCommands env (Elapse format timestamp interval) =
+runCommands :: App -> Command -> IO ()
+runCommands app Env = TIO.putStrLn toDisplay
+  where
+    configPathDisplay :: TLB.Builder
+    configPathDisplay = case app.configPath of
+      Left err -> TLB.fromString . show $ err
+      Right fp -> TLB.fromString $ "using config file at: " <> fp
+
+    configFormat :: TLB.Builder
+    configFormat = TLB.fromString $ case app.config.format of
+      Nothing -> "format: " <> show Config.defaultFormat <> "(not set, using defaults)"
+      Just f -> "format: " <> show f
+
+    configUNIXConfig :: TLB.Builder
+    configUNIXConfig = unixConfigDisplay
+      where
+        header :: Maybe Config.UNIXConfig -> TLB.Builder
+        header Nothing = "UNIX config (MISSING):"
+        header (Just unix) = "UNIX config: "
+
+        precision :: Maybe Config.UNIXPrecision -> TLB.Builder
+        precision Nothing = "precision: " <> p <> "(not set, using defaults)"
+          where
+            p = TLB.fromString . show $ Config.defaultUNIXPrecision
+        precision (Just p) = "precision: " <> (TLB.fromString . show $ p)
+
+        headerDisplay = header app.config.unixConfig
+        precisionDisplay = precision (Config.precision =<< app.config.unixConfig)
+        unixConfigDisplay = foldr1 (\acc t -> acc <> "\n" <> t) [headerDisplay, precisionDisplay]
+
+    toDisplay = TL.toStrict . TLB.toLazyText $ foldr1 (\acc t -> acc <> "\n" <> t) [configPathDisplay, configFormat, configUNIXConfig]
+runCommands app (Now format) = TIO.putStrLn . Time.toText app.time.format =<< Time.now
+runCommands app (Elapse format timestamp interval) =
   TIO.putStrLn
-    . formatUNIXSeconds env format
+    . Time.toText app.time.format
     . Time.elapse (convertInterval interval)
     =<< Time.now
-runCommands env (Range format timestamp (Take n) interval) = do
+runCommands app (Range format timestamp (Take n) interval) = do
   ts <- timeStampToUNIXOrNow timestamp
   let tsRange = Time.range ts n . convertInterval $ interval
-  TIO.putStrLn . T.intercalate "\n" . map (formatUNIXSeconds env format) $ tsRange
+  TIO.putStrLn . T.intercalate "\n" . map (Time.toText app.time.format) $ tsRange
 
 timeStampToUNIX :: TimeStamp -> IO Time.UNIXTime
 timeStampToUNIX (TSUNIX ts) = return . realToFrac $ ts
@@ -285,25 +338,6 @@ timeStampToUNIX TSNow = Time.now
 
 timeStampToUNIXOrNow :: Maybe TimeStamp -> IO Time.UNIXTime
 timeStampToUNIXOrNow = Maybe.maybe Time.now timeStampToUNIX
-
-formatUNIXSeconds :: Env.Env -> Maybe Format -> Time.UNIXTime -> T.Text
-formatUNIXSeconds env format = Time.toText selectedFormat
-  where
-    selectedFormat = case format of
-      Just UNIXMS -> Time.UNIX Time.MS
-      Just UNIXS -> Time.UNIX Time.S
-      Just ISO8601 -> Time.ISO8601
-      Just (Custom f) -> Time.Custom f
-      Nothing -> defaultFormat
-
-    defaultPrecision = case env.config.unixConfig.precision of
-      Env.MS -> Time.MS
-      Env.S -> Time.S
-
-    defaultFormat = case env.config.defaultFormat of
-      Env.UNIX -> Time.UNIX defaultPrecision
-      Env.ISO8601 -> Time.ISO8601
-      Env.Custom f -> Time.Custom f
 
 convertInterval :: Interval -> [Time.Interval]
 convertInterval (Interval ms s m h d) =

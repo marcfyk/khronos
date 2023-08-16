@@ -5,9 +5,17 @@ import qualified Data.Time.Clock.POSIX as POSIX
 import qualified Data.Time.Format as TF
 import qualified Data.Time.Format.ISO8601 as ISO8601
 
+data Time = Time
+  { format :: Format,
+    unixPrecision :: UNIXPrecision
+  }
+
 type UNIXTime = POSIX.POSIXTime
 
-data UNIXPrecision = MS | S deriving (Show)
+data UNIXPrecision
+  = MS
+  | S
+  deriving (Show)
 
 data Format
   = UNIX UNIXPrecision
