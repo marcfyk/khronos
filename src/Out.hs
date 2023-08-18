@@ -40,8 +40,8 @@ newOut = Out info warn error
           isBold = False
         }
 
-putStrLn :: MessageStyle -> String -> IO ()
-putStrLn messageStyle text = do
+setStyling :: MessageStyle -> IO ()
+setStyling messageStyle = do
   let underlineSGR =
         ANSI.SetUnderlining $
           if isUnderlined messageStyle
@@ -54,5 +54,15 @@ putStrLn messageStyle text = do
             else ANSI.NormalIntensity
   let sgrs = colorFG messageStyle <> colorBG messageStyle <> [underlineSGR, boldSGR]
   ANSI.setSGR sgrs
+
+putStr :: MessageStyle -> String -> IO ()
+putStr messageStyle text = do
+  setStyling messageStyle
+  Prelude.putStr text
+  ANSI.setSGR [ANSI.Reset]
+
+putStrLn :: MessageStyle -> String -> IO ()
+putStrLn messageStyle text = do
+  setStyling messageStyle
   Prelude.putStrLn text
   ANSI.setSGR [ANSI.Reset]

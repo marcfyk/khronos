@@ -5,19 +5,14 @@ import qualified Data.Text.IO as TIO
 import qualified Out
 import qualified System.Console.ANSI as ANSI
 
+putStr :: Out.MessageStyle -> T.Text -> IO ()
+putStr messageStyle text = do
+  Out.setStyling messageStyle
+  TIO.putStr text
+  ANSI.setSGR [ANSI.Reset]
+
 putStrLn :: Out.MessageStyle -> T.Text -> IO ()
 putStrLn messageStyle text = do
-  let underlineSGR =
-        ANSI.SetUnderlining $
-          if Out.isUnderlined messageStyle
-            then ANSI.SingleUnderline
-            else ANSI.NoUnderline
-  let boldSGR =
-        ANSI.SetConsoleIntensity $
-          if Out.isBold messageStyle
-            then ANSI.BoldIntensity
-            else ANSI.NormalIntensity
-  let sgrs = Out.colorFG messageStyle <> Out.colorBG messageStyle <> [underlineSGR, boldSGR]
-  ANSI.setSGR sgrs
+  Out.setStyling messageStyle
   TIO.putStrLn text
   ANSI.setSGR [ANSI.Reset]

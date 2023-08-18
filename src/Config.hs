@@ -96,10 +96,7 @@ instance A.ToJSON UNIXPrecision where
 data NoConfig
   = NoFile
   | InvalidFile FilePath String
-
-instance Show NoConfig where
-  show NoFile = "no config file found"
-  show (InvalidFile fp err) = Printf.printf "could not parse config from %s\n%s" fp err
+  deriving (Show, Eq)
 
 paths :: [String]
 paths =

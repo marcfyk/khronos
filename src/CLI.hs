@@ -7,7 +7,6 @@ import qualified Config
 import qualified Data.Char as Time
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TLB
 import Options.Applicative
@@ -36,6 +35,8 @@ import Options.Applicative
     (<|>),
   )
 import qualified Out
+import qualified Out.Text
+import qualified Text.Printf as Printf
 import qualified Time
 
 data App = App
@@ -283,46 +284,95 @@ runParser = execParser optsParser
         nowParser = flag' TSNow (long "now" <> help "current timestamp")
 
 runCommands :: App -> Command -> IO ()
-runCommands app Env = TIO.putStrLn toDisplay
+runCommands app Env = do
+  loadedConfigMessage app.configPath
+  generalConfigHeader app.configPath
+  generalConfigMessage app.configPath app.config
+  unixConfigHeader app.configPath app.config.unixConfig
+  unixConfigPrecision app.configPath (app.config.unixConfig >>= Config.precision)
   where
-    configPathDisplay :: TLB.Builder
-    configPathDisplay = case app.configPath of
-      Left err -> TLB.fromString . show $ err
-      Right fp -> TLB.fromString $ "using config file at: " <> fp
+    messageNotSetUsingDefaults :: String
+    messageNotSetUsingDefaults = "[not set, using defaults]"
 
-    configFormat :: TLB.Builder
-    configFormat = TLB.fromString $ case app.config.format of
-      Nothing -> "format: " <> show Config.defaultFormat <> "(not set, using defaults)"
-      Just f -> "format: " <> show f
+    loadedConfigMessage :: Either Config.NoConfig FilePath -> IO ()
+    loadedConfigMessage (Left (Config.InvalidFile fp err)) = do
+      Out.putStr app.out.error {Out.isUnderlined = True, Out.isBold = True} "Config Status:"
+      Out.putStrLn app.out.error (Printf.printf " could not parse config from %s\n%s" fp err)
+    loadedConfigMessage (Left Config.NoFile) = do
+      Out.putStr app.out.warn {Out.isUnderlined = True, Out.isBold = True} "Config Status:"
+      Out.putStrLn app.out.warn " no config file found\n"
+    loadedConfigMessage (Right fp) = do
+      Out.putStr app.out.info {Out.isUnderlined = True, Out.isBold = True} "Config Status:"
+      Out.putStrLn app.out.info $ " using config file at: " <> fp <> "\n"
 
-    configUNIXConfig :: TLB.Builder
-    configUNIXConfig = unixConfigDisplay
+    generalConfigHeader :: Either Config.NoConfig FilePath -> IO ()
+    generalConfigHeader (Right _) =
+      Out.putStrLn
+        app.out.info {Out.isUnderlined = True, Out.isBold = True}
+        "General Config"
+    generalConfigHeader (Left _) =
+      Out.putStrLn
+        app.out.warn {Out.isUnderlined = True, Out.isBold = True}
+        $ "General Config " <> messageNotSetUsingDefaults
+
+    generalConfigMessage :: Either Config.NoConfig FilePath -> Config.Config -> IO ()
+    generalConfigMessage configPath config = do
+      formatMessage configPath config.format
       where
-        header :: Maybe Config.UNIXConfig -> TLB.Builder
-        header Nothing = "UNIX config (MISSING):"
-        header (Just unix) = "UNIX config: "
+        formatMessage :: Either Config.NoConfig FilePath -> Maybe Config.Format -> IO ()
+        formatMessage (Right _) (Just f) =
+          Out.putStrLn
+            app.out.info
+            $ "format: " <> show f <> "\n"
+        formatMessage (Left _) (Just _) =
+          Out.putStrLn
+            app.out.warn
+            $ "format: " <> show Config.defaultFormat <> "(not set, using defaults)\n"
+        formatMessage _ Nothing =
+          Out.putStrLn
+            app.out.warn
+            $ "format: " <> show Config.defaultFormat <> "(not set, using defaults)\n"
 
-        precision :: Maybe Config.UNIXPrecision -> TLB.Builder
-        precision Nothing = "precision: " <> p <> "(not set, using defaults)"
-          where
-            p = TLB.fromString . show $ Config.defaultUNIXPrecision
-        precision (Just p) = "precision: " <> (TLB.fromString . show $ p)
+    unixConfigHeader :: Either Config.NoConfig FilePath -> Maybe Config.UNIXConfig -> IO ()
+    unixConfigHeader (Right _) (Just unix) =
+      Out.putStrLn
+        app.out.info {Out.isUnderlined = True, Out.isBold = True}
+        "UNIX Config:"
+    unixConfigHeader (Left _) (Just _) =
+      Out.putStrLn
+        app.out.warn {Out.isUnderlined = True, Out.isBold = True}
+        $ "UNIX config " <> messageNotSetUsingDefaults
+    unixConfigHeader _ Nothing =
+      Out.putStrLn
+        app.out.warn {Out.isUnderlined = True, Out.isBold = True}
+        $ "UNIX config " <> messageNotSetUsingDefaults
 
-        headerDisplay = header app.config.unixConfig
-        precisionDisplay = precision (Config.precision =<< app.config.unixConfig)
-        unixConfigDisplay = foldr1 (\acc t -> acc <> "\n" <> t) [headerDisplay, precisionDisplay]
-
-    toDisplay = TL.toStrict . TLB.toLazyText $ foldr1 (\acc t -> acc <> "\n" <> t) [configPathDisplay, configFormat, configUNIXConfig]
-runCommands app (Now format) = TIO.putStrLn . Time.toText app.time.format =<< Time.now
+    unixConfigPrecision :: Either Config.NoConfig FilePath -> Maybe Config.UNIXPrecision -> IO ()
+    unixConfigPrecision (Right _) (Just p) =
+      Out.putStrLn
+        app.out.info
+        $ "precision: " <> show p <> "\n"
+    unixConfigPrecision (Left _) (Just _) =
+      Out.putStrLn
+        app.out.warn
+        $ "precision: " <> show Config.defaultUNIXPrecision <> " " <> messageNotSetUsingDefaults
+    unixConfigPrecision _ Nothing =
+      Out.putStrLn
+        app.out.warn
+        $ "precision: " <> show Config.defaultUNIXPrecision <> " " <> messageNotSetUsingDefaults
+runCommands app (Now format) = Out.Text.putStrLn app.out.info . Time.toText app.time.format =<< Time.now
 runCommands app (Elapse format timestamp interval) =
-  TIO.putStrLn
+  Out.Text.putStrLn app.out.info
     . Time.toText app.time.format
     . Time.elapse (convertInterval interval)
     =<< Time.now
 runCommands app (Range format timestamp (Take n) interval) = do
   ts <- timeStampToUNIXOrNow timestamp
   let tsRange = Time.range ts n . convertInterval $ interval
-  TIO.putStrLn . T.intercalate "\n" . map (Time.toText app.time.format) $ tsRange
+  Out.Text.putStrLn app.out.info
+    . T.intercalate "\n"
+    . map (Time.toText app.time.format)
+    $ tsRange
 
 timeStampToUNIX :: TimeStamp -> IO Time.UNIXTime
 timeStampToUNIX (TSUNIX ts) = return . realToFrac $ ts
