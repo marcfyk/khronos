@@ -35,12 +35,14 @@ import Options.Applicative
     (<**>),
     (<|>),
   )
+import qualified Out
 import qualified Time
 
 data App = App
   { configPath :: Either Config.NoConfig FilePath,
     config :: Config.Config,
-    time :: Time.Time
+    time :: Time.Time,
+    out :: Out.Out
   }
 
 newtype Opts = Opts {optCommand :: Command}
@@ -81,20 +83,10 @@ run = do
   runCommands app command
 
 newApp :: Either Config.NoConfig FilePath -> Config.Config -> App
-newApp configPath config = App configPath config time
+newApp configPath config = App configPath config time out
   where
-    unixPrecision = case Config.precision =<< config.unixConfig of
-      Nothing -> Time.MS
-      Just Config.MS -> Time.MS
-      Just Config.S -> Time.S
-
-    format = case config.format of
-      Nothing -> Time.UNIX unixPrecision
-      Just Config.UNIX -> Time.UNIX unixPrecision
-      Just Config.ISO8601 -> Time.ISO8601
-      Just (Config.Custom f) -> Time.Custom f
-
-    time = Time.Time format unixPrecision
+    time = Time.newTime config
+    out = Out.newOut
 
 runParser :: IO Opts
 runParser = execParser optsParser

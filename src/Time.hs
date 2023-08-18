@@ -1,5 +1,8 @@
+{-# LANGUAGE OverloadedRecordDot #-}
+
 module Time where
 
+import qualified Config
 import qualified Data.Text as T
 import qualified Data.Time.Clock.POSIX as POSIX
 import qualified Data.Time.Format as TF
@@ -22,6 +25,20 @@ data Format
   | ISO8601
   | Custom String
   deriving (Show)
+
+newTime :: Config.Config -> Time
+newTime config = Time format unixPrecision
+  where
+    unixPrecision = case Config.precision =<< config.unixConfig of
+      Nothing -> Time.MS
+      Just Config.MS -> Time.MS
+      Just Config.S -> Time.S
+
+    format = case config.format of
+      Nothing -> Time.UNIX unixPrecision
+      Just Config.UNIX -> Time.UNIX unixPrecision
+      Just Config.ISO8601 -> Time.ISO8601
+      Just (Config.Custom f) -> Time.Custom f
 
 toText :: Format -> UNIXTime -> T.Text
 toText (UNIX S) = T.pack . show . (round :: (POSIX.POSIXTime -> Integer))
