@@ -40,8 +40,8 @@ newOut = Out info warn error
           isBold = False
         }
 
-putStrLn :: Out -> MessageStyle -> String -> IO ()
-putStrLn out messageStyle text = do
+putStrLn :: MessageStyle -> String -> IO ()
+putStrLn messageStyle text = do
   let underlineSGR =
         ANSI.SetUnderlining $
           if isUnderlined messageStyle

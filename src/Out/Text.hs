@@ -5,8 +5,8 @@ import qualified Data.Text.IO as TIO
 import qualified Out
 import qualified System.Console.ANSI as ANSI
 
-putStrLn :: Out.Out -> Out.MessageStyle -> T.Text -> IO ()
-putStrLn out messageStyle text = do
+putStrLn :: Out.MessageStyle -> T.Text -> IO ()
+putStrLn messageStyle text = do
   let underlineSGR =
         ANSI.SetUnderlining $
           if Out.isUnderlined messageStyle
