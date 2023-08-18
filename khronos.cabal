@@ -60,6 +60,7 @@ library
         Time,
         Config,
         Out,
+        Out.Text,
     build-depends:
         base ^>=4.16.4.0,
         aeson ^>=2.2.0.0,

@@ -1,6 +1,5 @@
 module Out where
 
-import qualified Data.Text as T
 import qualified System.Console.ANSI as ANSI
 
 data Out = Out
@@ -41,7 +40,7 @@ newOut = Out info warn error
           isBold = False
         }
 
-putStrLn :: Out -> MessageStyle -> T.Text -> IO ()
+putStrLn :: Out -> MessageStyle -> String -> IO ()
 putStrLn out messageStyle text = do
   let underlineSGR =
         ANSI.SetUnderlining $
@@ -55,5 +54,5 @@ putStrLn out messageStyle text = do
             else ANSI.NormalIntensity
   let sgrs = colorFG messageStyle <> colorBG messageStyle <> [underlineSGR, boldSGR]
   ANSI.setSGR sgrs
-  Prelude.putStrLn . T.unpack $ text
+  Prelude.putStrLn text
   ANSI.setSGR [ANSI.Reset]
