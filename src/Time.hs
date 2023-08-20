@@ -3,10 +3,13 @@
 module Time where
 
 import qualified Config
+import qualified Data.Maybe as Maybe
 import qualified Data.Text as T
+import qualified Data.Time as Time
 import qualified Data.Time.Clock.POSIX as POSIX
 import qualified Data.Time.Format as TF
 import qualified Data.Time.Format.ISO8601 as ISO8601
+import qualified Data.Time.LocalTime as LocalTime
 
 data Time = Time
   { format :: Format,
@@ -40,17 +43,27 @@ newTime config = Time format unixPrecision
       Just Config.ISO8601 -> Time.ISO8601
       Just (Config.Custom f) -> Time.Custom f
 
-toText :: Format -> UNIXTime -> T.Text
-toText (UNIX S) = T.pack . show . (round :: (POSIX.POSIXTime -> Integer))
-toText (UNIX MS) = toText (UNIX S) . (* 1000)
-toText ISO8601 =
-  T.pack
+data ErrFormat = ErrFormat
+
+toText :: Format -> UNIXTime -> IO T.Text
+toText (UNIX S) ts = return . T.pack . show . round $ ts
+toText (UNIX MS) ts = toText (UNIX S) . (* 1000) $ ts
+toText ISO8601 ts =
+  return
+    . T.pack
     . ISO8601.iso8601Show
     . POSIX.posixSecondsToUTCTime
-toText (Custom f) =
-  T.pack
-    . TF.formatTime TF.defaultTimeLocale f
-    . POSIX.posixSecondsToUTCTime
+    $ ts
+toText (Custom f) ts =
+  do
+    currentTimeZone <- Time.getCurrentTimeZone
+    let utcOffsetSeconds = fromIntegral . (* 60) . Time.timeZoneMinutes $ currentTimeZone
+    return
+      . T.pack
+      . TF.formatTime TF.defaultTimeLocale f
+      . Time.addUTCTime utcOffsetSeconds
+      . POSIX.posixSecondsToUTCTime
+      $ ts
 
 data Unit
   = Millisecond
