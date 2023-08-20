@@ -4,6 +4,7 @@
 module CLI where
 
 import qualified Config
+import qualified Control.Monad as Monad
 import qualified Data.Char as Time
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as T
@@ -360,19 +361,25 @@ runCommands app Env = do
       Out.putStrLn
         app.out.warn
         $ "precision: " <> show Config.defaultUNIXPrecision <> " " <> messageNotSetUsingDefaults
-runCommands app (Now format) = Out.Text.putStrLn app.out.info . Time.toText app.time.format =<< Time.now
-runCommands app (Elapse format timestamp interval) =
-  Out.Text.putStrLn app.out.info
-    . Time.toText app.time.format
-    . Time.elapse (convertInterval interval)
-    =<< Time.now
+runCommands app (Now Nothing) = do
+  now <- Time.now
+  formatted <- Time.toText app.time.format now
+  Out.Text.putStrLn app.out.info formatted
+runCommands app (Now (Just format)) = do
+  now <- Time.now
+  formatted <- Time.toText (parseFormat format) now
+  Out.Text.putStrLn app.out.info formatted
+runCommands app (Elapse format timestamp interval) = do
+  ts <- timeStampToUNIXOrNow timestamp
+  let elapsed = Time.elapse (convertInterval interval) ts
+  formatted <- Time.toText app.time.format elapsed
+  Out.Text.putStrLn app.out.info formatted
 runCommands app (Range format timestamp (Take n) interval) = do
   ts <- timeStampToUNIXOrNow timestamp
   let tsRange = Time.range ts n . convertInterval $ interval
-  Out.Text.putStrLn app.out.info
-    . T.intercalate "\n"
-    . map (Time.toText app.time.format)
-    $ tsRange
+  formattedTs <- mapM (Time.toText app.time.format) tsRange
+  let formatted = T.intercalate "\n" formattedTs
+  Out.Text.putStrLn app.out.info formatted
 
 timeStampToUNIX :: TimeStamp -> IO Time.UNIXTime
 timeStampToUNIX (TSUNIX ts) = return . realToFrac $ ts
@@ -387,3 +394,9 @@ convertInterval (Interval ms s m h d) =
     Time.Interval
     [Time.Millisecond, Time.Second, Time.Minute, Time.Hour, Time.Day]
     (map (Maybe.fromMaybe 0) [ms, s, m, h, d])
+
+parseFormat :: Format -> Time.Format
+parseFormat UNIXMS = Time.UNIX Time.MS
+parseFormat UNIXS = Time.UNIX Time.S
+parseFormat ISO8601 = Time.ISO8601
+parseFormat (Custom f) = Time.Custom f
