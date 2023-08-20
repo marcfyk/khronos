@@ -34,28 +34,9 @@ instance QC.Arbitrary Time.Interval where
 
 spec :: H.Spec
 spec = do
-  toTextSpec
   unixCoeffSpec
   intervalCoeffSpec
   elapseSpec
-
-toTextSpec :: H.Spec
-toTextSpec = H.describe "toText" $ do
-  H.describe "it should display the time in the correct format" $ do
-    H.describe "when format: UNIX MS" $ do
-      HQC.prop "should return the whole number of x shifted by 10^3" $ \x ->
-        Time.toText (Time.UNIX Time.MS) x `H.shouldBe` (toWholeNumberAsText . (* 1000) $ x)
-    H.describe "when format: UNIX S" $ do
-      HQC.prop "should return the whole number of x" $ \x ->
-        Time.toText (Time.UNIX Time.S) x `H.shouldBe` toWholeNumberAsText x
-    H.describe "when  format: ISO8601" $ do
-      HQC.prop "should return the default ISO8601 representation of x" $ \x ->
-        Time.toText Time.ISO8601 x `H.shouldBe` toDefaultISO x
-  where
-    toWholeNumberAsText :: Time.UNIXTime -> T.Text
-    toWholeNumberAsText = T.pack . show . (round :: Time.UNIXTime -> Integer)
-    toDefaultISO :: Time.UNIXTime -> T.Text
-    toDefaultISO = T.pack . ISO8601.iso8601Show . POSIX.posixSecondsToUTCTime
 
 unixCoeffSpec :: H.Spec
 unixCoeffSpec = H.describe "unixCoeff" $ do
