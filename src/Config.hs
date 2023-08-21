@@ -14,6 +14,7 @@ import qualified Text.Printf as Printf
 
 data Config = Config
   { format :: Maybe Format,
+    utc :: Maybe Int,
     unixConfig :: Maybe UNIXConfig
   }
   deriving (Generics.Generic, Eq)
@@ -22,15 +23,33 @@ defaultConfig :: Config
 defaultConfig =
   Config
     { format = Just defaultFormat,
+      utc = Nothing,
       unixConfig = Just defaultUNIXConfig
     }
 
 instance A.FromJSON Config where
-  parseJSON = A.withObject "Config" $ \v -> Config <$> v A..:? "format" <*> v A..:? "unix"
+  parseJSON = A.withObject "Config" $ \v ->
+    Config
+      <$> v A..:? "format"
+      <*> v A..:? "utc"
+      <*> v A..:? "unix"
 
 instance A.ToJSON Config where
-  toJSON (Config format' unix') = A.object ["format" A..= format', "unix" A..= unix']
-  toEncoding (Config format' unix') = A.pairs ("format" A..= format' <> "unix" A..= unix')
+  toJSON (Config format utc unix) =
+    A.object
+      [ "format" A..= format,
+        "utc" A..= utc,
+        "unix" A..= unix
+      ]
+  toEncoding (Config format utc unix) =
+    A.pairs
+      ( "format"
+          A..= format
+          <> "utc"
+          A..= utc
+          <> "unix"
+          A..= unix
+      )
 
 data Format
   = UNIX
@@ -121,9 +140,5 @@ tryConfigFromFile = do
         Left err -> Left . InvalidFile filePath $ err
         Right config -> Right (filePath, config)
 
-load :: IO (Either Config.NoConfig FilePath, Config.Config)
-load = do
-  config <- tryConfigFromFile
-  return $ case config of
-    Left err -> (Left err, Config.defaultConfig)
-    Right (filePath, config) -> (Right filePath, config)
+load :: IO (Either NoConfig (FilePath, Config.Config))
+load = tryConfigFromFile

@@ -3,6 +3,7 @@
 module Time where
 
 import qualified Config
+import qualified Config as Time
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as T
 import qualified Data.Time as Time
@@ -13,6 +14,7 @@ import qualified Data.Time.LocalTime as LocalTime
 
 data Time = Time
   { format :: Format,
+    tz :: Time.TimeZone,
     unixPrecision :: UNIXPrecision
   }
 
@@ -26,44 +28,57 @@ data UNIXPrecision
 data Format
   = UNIX UNIXPrecision
   | ISO8601
-  | Custom String
+  | Custom String Time.TimeZone
   deriving (Show)
 
-newTime :: Config.Config -> Time
-newTime config = Time format unixPrecision
+newTime :: Either Config.NoConfig (FilePath, Config.Config) -> IO Time
+newTime (Left _) = do
+  tz <- Time.getCurrentTimeZone
+  return $ Time format tz unixPrecision
   where
-    unixPrecision = case Config.precision =<< config.unixConfig of
-      Nothing -> Time.MS
-      Just Config.MS -> Time.MS
-      Just Config.S -> Time.S
+    unixPrecision = MS
+    format = UNIX MS
+newTime (Right (_, config)) = do
+  tz <- getTZ
+  let unixPrecision = getUNIXPrecision (config.unixConfig >>= Config.precision)
+  let format = getFormat config.format unixPrecision tz
+  return $ Time format tz unixPrecision
+  where
+    getTZ :: IO LocalTime.TimeZone
+    getTZ = case config.utc of
+      Nothing -> Time.getCurrentTimeZone
+      Just n -> return (Time.hoursToTimeZone n)
 
-    format = case config.format of
-      Nothing -> Time.UNIX unixPrecision
-      Just Config.UNIX -> Time.UNIX unixPrecision
-      Just Config.ISO8601 -> Time.ISO8601
-      Just (Config.Custom f) -> Time.Custom f
+    getUNIXPrecision :: Maybe Config.UNIXPrecision -> UNIXPrecision
+    getUNIXPrecision Nothing = MS
+    getUNIXPrecision (Just Config.MS) = MS
+    getUNIXPrecision (Just Config.S) = S
+
+    getFormat :: Maybe Config.Format -> UNIXPrecision -> LocalTime.TimeZone -> Format
+    getFormat Nothing unixPrecision _ = UNIX unixPrecision
+    getFormat (Just Config.UNIX) unixPrecision _ = UNIX unixPrecision
+    getFormat (Just Config.ISO8601) _ _ = ISO8601
+    getFormat (Just (Config.Custom format)) _ tz = Custom format tz
 
 data ErrFormat = ErrFormat
 
-toText :: Format -> UNIXTime -> IO T.Text
-toText (UNIX S) ts = return . T.pack . show . round $ ts
-toText (UNIX MS) ts = toText (UNIX S) . (* 1000) $ ts
-toText ISO8601 ts =
-  return
-    . T.pack
-    . ISO8601.iso8601Show
-    . POSIX.posixSecondsToUTCTime
-    $ ts
-toText (Custom f) ts =
-  do
-    currentTimeZone <- Time.getCurrentTimeZone
-    let utcOffsetSeconds = fromIntegral . (* 60) . Time.timeZoneMinutes $ currentTimeZone
-    return
-      . T.pack
-      . TF.formatTime TF.defaultTimeLocale f
-      . Time.addUTCTime utcOffsetSeconds
-      . POSIX.posixSecondsToUTCTime
-      $ ts
+toText :: Format -> UNIXTime -> T.Text
+toText format ts = formatted
+  where
+    formatted = case format of
+      UNIX S -> T.pack . show . round $ ts
+      UNIX MS -> T.pack . show . round . (* 1000) $ ts
+      ISO8601 -> T.pack . ISO8601.iso8601Show . POSIX.posixSecondsToUTCTime $ ts
+      Custom f tz ->
+        T.pack
+          . TF.formatTime TF.defaultTimeLocale f
+          . Time.addUTCTime (fromIntegral offset)
+          . POSIX.posixSecondsToUTCTime
+          $ ts
+        where
+          getUTCOffsetSeconds :: Time.TimeZone -> Int
+          getUTCOffsetSeconds = (* 60) . Time.timeZoneMinutes
+          offset = getUTCOffsetSeconds tz
 
 data Unit
   = Millisecond
