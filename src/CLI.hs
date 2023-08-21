@@ -6,10 +6,12 @@ module CLI where
 import qualified Config
 import qualified Control.Monad as Monad
 import qualified Data.Char as Time
+import qualified Data.Either as Either
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TLB
+import qualified Data.Time
 import Options.Applicative
   ( CommandFields,
     Mod,
@@ -41,8 +43,7 @@ import qualified Text.Printf as Printf
 import qualified Time
 
 data App = App
-  { configPath :: Either Config.NoConfig FilePath,
-    config :: Config.Config,
+  { configResult :: Either Config.NoConfig (FilePath, Config.Config),
     time :: Time.Time,
     out :: Out.Out
   }
@@ -60,7 +61,7 @@ data Format
   = UNIXS
   | UNIXMS
   | ISO8601
-  | Custom String
+  | Custom String (Maybe Int)
 
 data Interval = Interval
   { milliseconds :: Maybe Integer,
@@ -78,17 +79,17 @@ data TimeStamp
 
 run :: IO ()
 run = do
-  (configPath, config) <- Config.load
-  let app = newApp configPath config
+  configResult <- Config.load
+  app <- newApp configResult
   opts <- runParser
   let command = optCommand opts
   runCommands app command
 
-newApp :: Either Config.NoConfig FilePath -> Config.Config -> App
-newApp configPath config = App configPath config time out
-  where
-    time = Time.newTime config
-    out = Out.newOut
+newApp :: Either Config.NoConfig (FilePath, Config.Config) -> IO App
+newApp configResult = do
+  time <- Time.newTime configResult
+  let out = Out.newOut
+  return $ App configResult time out
 
 runParser :: IO Opts
 runParser = execParser optsParser
@@ -170,7 +171,12 @@ runParser = execParser optsParser
             <*> intervalOptions
 
     formatOptions :: Parser (Maybe Format)
-    formatOptions = optional $ unixSParser <|> unixMSParser <|> isoParser <|> customParser
+    formatOptions =
+      optional $
+        unixSParser
+          <|> unixMSParser
+          <|> isoParser
+          <|> customParser
       where
         unixSParser :: Parser Format
         unixSParser = flag' UNIXS (long "unix-s" <> help "unix format in seconds")
@@ -190,12 +196,24 @@ runParser = execParser optsParser
         customParser :: Parser Format
         customParser =
           Custom
-            <$> strOption
-              ( long "format"
-                  <> short 'f'
-                  <> metavar "FORMAT"
-                  <> help "format for representing time, example: %Y-%m-%d %H:%M:%S"
-              )
+            <$> formatParser
+            <*> utcOffsetParser
+          where
+            formatParser =
+              strOption
+                ( long "format"
+                    <> short 'f'
+                    <> metavar "FORMAT"
+                    <> help "format for representing time, example: %Y-%m-%d %H:%M:%S"
+                )
+            utcOffsetParser =
+              optional $
+                option
+                  auto
+                  ( long "utc"
+                      <> metavar "UTC_OFFSET"
+                      <> help "utc offset to the timestamp"
+                  )
 
     intervalOptions :: Parser Interval
     intervalOptions =
@@ -213,7 +231,7 @@ runParser = execParser optsParser
             ( long "milliseconds"
                 <> long "ms"
                 <> metavar "MILLISECOND_OFFSET"
-                <> help "number of milliseconds relative to the current time"
+                <> help "number of milliseconds relative to the timestamp"
             )
 
         seconds :: Parser Integer
@@ -224,7 +242,7 @@ runParser = execParser optsParser
                 <> long "sec"
                 <> short 'S'
                 <> metavar "SECOND_OFFSET"
-                <> help "number of seconds relative to the current time"
+                <> help "number of seconds relative to the timestamp"
             )
 
         minutes :: Parser Integer
@@ -235,7 +253,7 @@ runParser = execParser optsParser
                 <> long "min"
                 <> short 'M'
                 <> metavar "MINUTE_OFFSET"
-                <> help "number of minutes relative to the current time"
+                <> help "number of minutes relative to the timestamp"
             )
 
         hours :: Parser Integer
@@ -246,7 +264,7 @@ runParser = execParser optsParser
                 <> long "hr"
                 <> short 'H'
                 <> metavar "HOUR_OFFSET"
-                <> help "number of hours relative to the current time"
+                <> help "number of hours relative to the timestamp"
             )
 
         days :: Parser Integer
@@ -256,7 +274,7 @@ runParser = execParser optsParser
             ( long "day"
                 <> short 'd'
                 <> metavar "DAY_OFFSET"
-                <> help "number of days relative to the current time"
+                <> help "number of days relative to the timestamp"
             )
 
     takeOptions :: Parser Take
@@ -286,11 +304,14 @@ runParser = execParser optsParser
 
 runCommands :: App -> Command -> IO ()
 runCommands app Env = do
-  loadedConfigMessage app.configPath
-  generalConfigHeader app.configPath
-  generalConfigMessage app.configPath app.config
-  unixConfigHeader app.configPath app.config.unixConfig
-  unixConfigPrecision app.configPath (app.config.unixConfig >>= Config.precision)
+  let filePathResult = fst <$> app.configResult
+  let configResult = snd <$> app.configResult
+  let unixConfig = Config.unixConfig <$> configResult
+  loadedConfigMessage filePathResult
+  generalConfigHeader filePathResult
+  generalConfigMessage configResult
+  unixConfigHeader unixConfig
+  unixConfigPrecision ((Config.precision =<<) <$> unixConfig)
   where
     messageNotSetUsingDefaults :: String
     messageNotSetUsingDefaults = "[not set, using defaults]"
@@ -316,68 +337,55 @@ runCommands app Env = do
         app.out.warn {Out.isUnderlined = True, Out.isBold = True}
         $ "General Config " <> messageNotSetUsingDefaults
 
-    generalConfigMessage :: Either Config.NoConfig FilePath -> Config.Config -> IO ()
-    generalConfigMessage configPath config = do
-      formatMessage configPath config.format
+    generalConfigMessage :: Either Config.NoConfig Config.Config -> IO ()
+    generalConfigMessage configResult = do
+      formatMessage (Config.format <$> configResult)
       where
-        formatMessage :: Either Config.NoConfig FilePath -> Maybe Config.Format -> IO ()
-        formatMessage (Right _) (Just f) =
+        formatMessage :: Either Config.NoConfig (Maybe Config.Format) -> IO ()
+        formatMessage (Right (Just f)) =
           Out.putStrLn
             app.out.info
             $ "format: " <> show f <> "\n"
-        formatMessage (Left _) (Just _) =
-          Out.putStrLn
-            app.out.warn
-            $ "format: " <> show Config.defaultFormat <> "(not set, using defaults)\n"
-        formatMessage _ Nothing =
+        formatMessage _ =
           Out.putStrLn
             app.out.warn
             $ "format: " <> show Config.defaultFormat <> "(not set, using defaults)\n"
 
-    unixConfigHeader :: Either Config.NoConfig FilePath -> Maybe Config.UNIXConfig -> IO ()
-    unixConfigHeader (Right _) (Just unix) =
+    unixConfigHeader :: Either Config.NoConfig (Maybe Config.UNIXConfig) -> IO ()
+    unixConfigHeader (Right (Just unix)) =
       Out.putStrLn
         app.out.info {Out.isUnderlined = True, Out.isBold = True}
         "UNIX Config:"
-    unixConfigHeader (Left _) (Just _) =
-      Out.putStrLn
-        app.out.warn {Out.isUnderlined = True, Out.isBold = True}
-        $ "UNIX config " <> messageNotSetUsingDefaults
-    unixConfigHeader _ Nothing =
+    unixConfigHeader _ =
       Out.putStrLn
         app.out.warn {Out.isUnderlined = True, Out.isBold = True}
         $ "UNIX config " <> messageNotSetUsingDefaults
 
-    unixConfigPrecision :: Either Config.NoConfig FilePath -> Maybe Config.UNIXPrecision -> IO ()
-    unixConfigPrecision (Right _) (Just p) =
+    unixConfigPrecision :: Either Config.NoConfig (Maybe Config.UNIXPrecision) -> IO ()
+    unixConfigPrecision (Right (Just p)) =
       Out.putStrLn
         app.out.info
         $ "precision: " <> show p <> "\n"
-    unixConfigPrecision (Left _) (Just _) =
+    unixConfigPrecision _ =
       Out.putStrLn
         app.out.warn
         $ "precision: " <> show Config.defaultUNIXPrecision <> " " <> messageNotSetUsingDefaults
-    unixConfigPrecision _ Nothing =
-      Out.putStrLn
-        app.out.warn
-        $ "precision: " <> show Config.defaultUNIXPrecision <> " " <> messageNotSetUsingDefaults
-runCommands app (Now Nothing) = do
+runCommands app (Now format) = do
   now <- Time.now
-  formatted <- Time.toText app.time.format now
-  Out.Text.putStrLn app.out.info formatted
-runCommands app (Now (Just format)) = do
-  now <- Time.now
-  formatted <- Time.toText (parseFormat format) now
+  let format' = parseFormat format app.time.tz
+  let formatted = Time.toText format' now
   Out.Text.putStrLn app.out.info formatted
 runCommands app (Elapse format timestamp interval) = do
   ts <- timeStampToUNIXOrNow timestamp
   let elapsed = Time.elapse (convertInterval interval) ts
-  formatted <- Time.toText app.time.format elapsed
+  let format' = parseFormat format app.time.tz
+  let formatted = Time.toText format' elapsed
   Out.Text.putStrLn app.out.info formatted
 runCommands app (Range format timestamp (Take n) interval) = do
   ts <- timeStampToUNIXOrNow timestamp
   let tsRange = Time.range ts n . convertInterval $ interval
-  formattedTs <- mapM (Time.toText app.time.format) tsRange
+  let format' = parseFormat format app.time.tz
+  let formattedTs = map (Time.toText format') tsRange
   let formatted = T.intercalate "\n" formattedTs
   Out.Text.putStrLn app.out.info formatted
 
@@ -395,8 +403,9 @@ convertInterval (Interval ms s m h d) =
     [Time.Millisecond, Time.Second, Time.Minute, Time.Hour, Time.Day]
     (map (Maybe.fromMaybe 0) [ms, s, m, h, d])
 
-parseFormat :: Format -> Time.Format
-parseFormat UNIXMS = Time.UNIX Time.MS
-parseFormat UNIXS = Time.UNIX Time.S
-parseFormat ISO8601 = Time.ISO8601
-parseFormat (Custom f) = Time.Custom f
+parseFormat :: Maybe Format -> Data.Time.TimeZone -> Time.Format
+parseFormat (Just UNIXMS) _ = Time.UNIX Time.MS
+parseFormat (Just UNIXS) _ = Time.UNIX Time.S
+parseFormat (Just ISO8601) _ = Time.ISO8601
+parseFormat (Just (Custom f (Just offset))) _ = Time.Custom f (Data.Time.minutesToTimeZone (offset * 60))
+parseFormat (Just (Custom f Nothing)) tz = Time.Custom f tz
