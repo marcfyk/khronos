@@ -12,31 +12,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TLB
 import qualified Data.Time
-import Options.Applicative
-  ( CommandFields,
-    Mod,
-    Parser,
-    ParserInfo,
-    auto,
-    command,
-    execParser,
-    flag',
-    fullDesc,
-    header,
-    help,
-    helper,
-    info,
-    long,
-    metavar,
-    option,
-    optional,
-    progDesc,
-    short,
-    strOption,
-    subparser,
-    (<**>),
-    (<|>),
-  )
+import qualified Options.Applicative as OA
 import qualified Out
 import qualified Out.Text
 import qualified Text.Printf as Printf
@@ -92,77 +68,77 @@ newApp configResult = do
   return $ App configResult time out
 
 runParser :: IO Opts
-runParser = execParser optsParser
+runParser = OA.execParser optsParser
   where
-    commandOptions :: Parser Opts
+    commandOptions :: OA.Parser Opts
     commandOptions =
       Opts
-        <$> subparser
+        <$> OA.subparser
           ( envCommand
               <> nowCommand
               <> elapseCommand
               <> rangeCommand
           )
 
-    optsParser :: ParserInfo Opts
+    optsParser :: OA.ParserInfo Opts
     optsParser =
-      info
-        (commandOptions <**> helper)
-        ( fullDesc
-            <> progDesc "khronos provides commands to display the result of time operations"
-            <> header "khronos - A CLI for time"
+      OA.info
+        (commandOptions OA.<**> OA.helper)
+        ( OA.fullDesc
+            <> OA.progDesc "khronos provides commands to display the result of time operations"
+            <> OA.header "khronos - A CLI for time"
         )
 
-    envCommand :: Mod CommandFields Command
+    envCommand :: OA.Mod OA.CommandFields Command
     envCommand =
-      command
+      OA.command
         "env"
-        ( info
-            (envOptions <**> helper)
-            (progDesc "Prints the current loaded configuration")
+        ( OA.info
+            (envOptions OA.<**> OA.helper)
+            (OA.progDesc "Prints the current loaded configuration")
         )
       where
-        envOptions :: Parser Command
+        envOptions :: OA.Parser Command
         envOptions = pure Env
 
-    nowCommand :: Mod CommandFields Command
+    nowCommand :: OA.Mod OA.CommandFields Command
     nowCommand =
-      command
+      OA.command
         "now"
-        ( info
-            (nowOptions <**> helper)
-            (progDesc "Prints the current time in the specified format (default format is unix)")
+        ( OA.info
+            (nowOptions OA.<**> OA.helper)
+            (OA.progDesc "Prints the current time in the specified format (default format is unix)")
         )
       where
-        nowOptions :: Parser Command
+        nowOptions :: OA.Parser Command
         nowOptions = Now <$> formatOptions
 
-    elapseCommand :: Mod CommandFields Command
+    elapseCommand :: OA.Mod OA.CommandFields Command
     elapseCommand =
-      command
+      OA.command
         "elapse"
-        ( info
-            (elapseOptions <**> helper)
-            (progDesc "Prints the elapse time from a given offset in the specified format (default format is unix)")
+        ( OA.info
+            (elapseOptions OA.<**> OA.helper)
+            (OA.progDesc "Prints the elapse time from a given offset in the specified format (default format is unix)")
         )
       where
-        elapseOptions :: Parser Command
+        elapseOptions :: OA.Parser Command
         elapseOptions =
           Elapse
             <$> formatOptions
             <*> timestampOptions
             <*> intervalOptions
 
-    rangeCommand :: Mod CommandFields Command
+    rangeCommand :: OA.Mod OA.CommandFields Command
     rangeCommand =
-      command
+      OA.command
         "range"
-        ( info
-            (rangeOptions <**> helper)
-            (progDesc "Prints a range of time starting from a timestamp (unix seconds) and stepped over with a specific value")
+        ( OA.info
+            (rangeOptions OA.<**> OA.helper)
+            (OA.progDesc "Prints a range of time starting from a timestamp (unix seconds) and stepped over with a specific value")
         )
       where
-        rangeOptions :: Parser Command
+        rangeOptions :: OA.Parser Command
         rangeOptions =
           Range
             <$> formatOptions
@@ -170,137 +146,137 @@ runParser = execParser optsParser
             <*> takeOptions
             <*> intervalOptions
 
-    formatOptions :: Parser (Maybe Format)
+    formatOptions :: OA.Parser (Maybe Format)
     formatOptions =
-      optional $
+      OA.optional $
         unixSParser
-          <|> unixMSParser
-          <|> isoParser
-          <|> customParser
+          OA.<|> unixMSParser
+          OA.<|> isoParser
+          OA.<|> customParser
       where
-        unixSParser :: Parser Format
-        unixSParser = flag' UNIXS (long "unix-s" <> help "unix format in seconds")
+        unixSParser :: OA.Parser Format
+        unixSParser = OA.flag' UNIXS (OA.long "unix-s" <> OA.help "unix format in seconds")
 
-        unixMSParser :: Parser Format
-        unixMSParser = flag' UNIXMS (long "unix-ms" <> help "unix format in milliseconds")
+        unixMSParser :: OA.Parser Format
+        unixMSParser = OA.flag' UNIXMS (OA.long "unix-ms" <> OA.help "unix format in milliseconds")
 
-        isoParser :: Parser Format
+        isoParser :: OA.Parser Format
         isoParser =
-          flag'
+          OA.flag'
             ISO8601
-            ( long "iso8601"
-                <> long "iso"
-                <> help "ISO8601 format"
+            ( OA.long "iso8601"
+                <> OA.long "iso"
+                <> OA.help "ISO8601 format"
             )
 
-        customParser :: Parser Format
+        customParser :: OA.Parser Format
         customParser =
           Custom
             <$> formatParser
             <*> utcOffsetParser
           where
             formatParser =
-              strOption
-                ( long "format"
-                    <> short 'f'
-                    <> metavar "FORMAT"
-                    <> help "format for representing time, example: %Y-%m-%d %H:%M:%S"
+              OA.strOption
+                ( OA.long "format"
+                    <> OA.short 'f'
+                    <> OA.metavar "FORMAT"
+                    <> OA.help "format for representing time, example: %Y-%m-%d %H:%M:%S"
                 )
             utcOffsetParser =
-              optional $
-                option
-                  auto
-                  ( long "utc"
-                      <> metavar "UTC_OFFSET"
-                      <> help "utc offset to the timestamp"
+              OA.optional $
+                OA.option
+                  OA.auto
+                  ( OA.long "utc"
+                      <> OA.metavar "UTC_OFFSET"
+                      <> OA.help "utc offset to the timestamp"
                   )
 
-    intervalOptions :: Parser Interval
+    intervalOptions :: OA.Parser Interval
     intervalOptions =
       Interval
-        <$> optional milliseconds
-        <*> optional seconds
-        <*> optional minutes
-        <*> optional hours
-        <*> optional days
+        <$> OA.optional milliseconds
+        <*> OA.optional seconds
+        <*> OA.optional minutes
+        <*> OA.optional hours
+        <*> OA.optional days
       where
-        milliseconds :: Parser Integer
+        milliseconds :: OA.Parser Integer
         milliseconds =
-          option
-            auto
-            ( long "milliseconds"
-                <> long "ms"
-                <> metavar "MILLISECOND_OFFSET"
-                <> help "number of milliseconds relative to the timestamp"
+          OA.option
+            OA.auto
+            ( OA.long "milliseconds"
+                <> OA.long "ms"
+                <> OA.metavar "MILLISECOND_OFFSET"
+                <> OA.help "number of milliseconds relative to the timestamp"
             )
 
-        seconds :: Parser Integer
+        seconds :: OA.Parser Integer
         seconds =
-          option
-            auto
-            ( long "second"
-                <> long "sec"
-                <> short 'S'
-                <> metavar "SECOND_OFFSET"
-                <> help "number of seconds relative to the timestamp"
+          OA.option
+            OA.auto
+            ( OA.long "second"
+                <> OA.long "sec"
+                <> OA.short 'S'
+                <> OA.metavar "SECOND_OFFSET"
+                <> OA.help "number of seconds relative to the timestamp"
             )
 
-        minutes :: Parser Integer
+        minutes :: OA.Parser Integer
         minutes =
-          option
-            auto
-            ( long "minute"
-                <> long "min"
-                <> short 'M'
-                <> metavar "MINUTE_OFFSET"
-                <> help "number of minutes relative to the timestamp"
+          OA.option
+            OA.auto
+            ( OA.long "minute"
+                <> OA.long "min"
+                <> OA.short 'M'
+                <> OA.metavar "MINUTE_OFFSET"
+                <> OA.help "number of minutes relative to the timestamp"
             )
 
-        hours :: Parser Integer
+        hours :: OA.Parser Integer
         hours =
-          option
-            auto
-            ( long "hour"
-                <> long "hr"
-                <> short 'H'
-                <> metavar "HOUR_OFFSET"
-                <> help "number of hours relative to the timestamp"
+          OA.option
+            OA.auto
+            ( OA.long "hour"
+                <> OA.long "hr"
+                <> OA.short 'H'
+                <> OA.metavar "HOUR_OFFSET"
+                <> OA.help "number of hours relative to the timestamp"
             )
 
-        days :: Parser Integer
+        days :: OA.Parser Integer
         days =
-          option
-            auto
-            ( long "day"
-                <> short 'd'
-                <> metavar "DAY_OFFSET"
-                <> help "number of days relative to the timestamp"
+          OA.option
+            OA.auto
+            ( OA.long "day"
+                <> OA.short 'd'
+                <> OA.metavar "DAY_OFFSET"
+                <> OA.help "number of days relative to the timestamp"
             )
 
-    takeOptions :: Parser Take
+    takeOptions :: OA.Parser Take
     takeOptions =
       Take
-        <$> option
-          auto
-          ( long "take"
-              <> short 't'
-              <> metavar "TAKE_AMOUNT"
-              <> help "number of values to take"
+        <$> OA.option
+          OA.auto
+          ( OA.long "take"
+              <> OA.short 't'
+              <> OA.metavar "TAKE_AMOUNT"
+              <> OA.help "number of values to take"
           )
 
-    timestampOptions :: Parser (Maybe TimeStamp)
-    timestampOptions = optional $ unixParser <|> nowParser
+    timestampOptions :: OA.Parser (Maybe TimeStamp)
+    timestampOptions = OA.optional $ unixParser OA.<|> nowParser
       where
         unixParser =
           TSUNIX
-            <$> option
-              auto
-              ( long "timestamp"
-                  <> long "ts"
-                  <> metavar "TIMESTAMP"
-                  <> help "timestamp"
+            <$> OA.option
+              OA.auto
+              ( OA.long "timestamp"
+                  <> OA.long "ts"
+                  <> OA.metavar "TIMESTAMP"
+                  <> OA.help "timestamp"
               )
-        nowParser = flag' TSNow (long "now" <> help "current timestamp")
+        nowParser = OA.flag' TSNow (OA.long "now" <> OA.help "current timestamp")
 
 runCommands :: App -> Command -> IO ()
 runCommands app Env = do
