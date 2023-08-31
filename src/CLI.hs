@@ -362,7 +362,7 @@ runEnvCommand app = do
 runNowCommand :: App -> Maybe Format -> IO ()
 runNowCommand app format = do
   now <- Time.now
-  let format' = parseFormat format app.time.tz
+  let format' = parseFormat format app.time.timezone
   let formatted = Time.toText format' now
   Out.Text.putStrLn app.out.info formatted
 
@@ -370,7 +370,7 @@ runElapseCommand :: App -> Maybe Format -> Maybe TimeStamp -> Interval -> IO ()
 runElapseCommand app format timestamp interval = do
   ts <- timeStampToUNIXOrNow timestamp
   let elapsed = Time.elapse (convertInterval interval) ts
-  let format' = parseFormat format app.time.tz
+  let format' = parseFormat format app.time.timezone
   let formatted = Time.toText format' elapsed
   Out.Text.putStrLn app.out.info formatted
 
@@ -378,7 +378,7 @@ runRangeCommand :: App -> Maybe Format -> Maybe TimeStamp -> Take -> Interval ->
 runRangeCommand app format timestamp (Take n) interval = do
   ts <- timeStampToUNIXOrNow timestamp
   let tsRange = Time.range ts n . convertInterval $ interval
-  let format' = parseFormat format app.time.tz
+  let format' = parseFormat format app.time.timezone
   let formattedTs = map (Time.toText format') tsRange
   let formatted = T.intercalate "\n" formattedTs
   Out.Text.putStrLn app.out.info formatted

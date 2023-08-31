@@ -2,7 +2,7 @@
 
 module Time
   ( newTime,
-    Time (Time, format, tz, unixPrecision),
+    Time (Time, format, timezone, unixPrecision),
     now,
     toText,
     elapse,
@@ -22,8 +22,6 @@ module Time
 where
 
 import qualified Config
-import qualified Config as Time
-import qualified Data.Maybe as Maybe
 import qualified Data.Text as T
 import qualified Data.Time as Time
 import qualified Data.Time.Clock.POSIX as POSIX
@@ -33,7 +31,7 @@ import qualified Data.Time.LocalTime as LocalTime
 
 data Time = Time
   { format :: Format,
-    tz :: Time.TimeZone,
+    timezone :: Time.TimeZone,
     unixPrecision :: UNIXPrecision
   }
 
@@ -53,15 +51,15 @@ data Format
 newTime :: Either Config.NoConfig (FilePath, Config.Config) -> IO Time
 newTime (Left _) = do
   tz <- Time.getCurrentTimeZone
-  return $ Time format tz unixPrecision
+  return $ Time f tz p
   where
-    unixPrecision = MS
-    format = UNIX MS
+    p = MS
+    f = UNIX MS
 newTime (Right (_, config)) = do
   tz <- getTZ
-  let unixPrecision = getUNIXPrecision (config.unixConfig >>= Config.precision)
-  let format = getFormat config.format unixPrecision tz
-  return $ Time format tz unixPrecision
+  let p = getUNIXPrecision (config.unixConfig >>= Config.precision)
+  let f = getFormat config.format p tz
+  return $ Time f tz p
   where
     getTZ :: IO LocalTime.TimeZone
     getTZ = case config.utc of
@@ -74,17 +72,15 @@ newTime (Right (_, config)) = do
     getUNIXPrecision (Just Config.S) = S
 
     getFormat :: Maybe Config.Format -> UNIXPrecision -> LocalTime.TimeZone -> Format
-    getFormat Nothing unixPrecision _ = UNIX unixPrecision
-    getFormat (Just Config.UNIX) unixPrecision _ = UNIX unixPrecision
+    getFormat Nothing p _ = UNIX p
+    getFormat (Just Config.UNIX) p _ = UNIX p
     getFormat (Just Config.ISO8601) _ _ = ISO8601
-    getFormat (Just (Config.Custom format)) _ tz = Custom format tz
-
-data ErrFormat = ErrFormat
+    getFormat (Just (Config.Custom f)) _ tz = Custom f tz
 
 toText :: Format -> UNIXTime -> T.Text
-toText format ts = formatted
+toText timeFormat ts = formatted
   where
-    formatted = case format of
+    formatted = case timeFormat of
       UNIX S -> T.pack . (show :: Integer -> String) . round $ ts
       UNIX MS -> T.pack . (show :: Integer -> String) . round . (* 1000) $ ts
       ISO8601 -> T.pack . ISO8601.iso8601Show . POSIX.posixSecondsToUTCTime $ ts
