@@ -1,16 +1,11 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module CLI where
+module CLI (run) where
 
 import qualified Config
-import qualified Control.Monad as Monad
-import qualified Data.Char as Time
-import qualified Data.Either as Either
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Builder as TLB
 import qualified Data.Time
 import qualified Options.Applicative as OA
 import qualified Out
@@ -31,7 +26,6 @@ data Command
   | Now (Maybe Format)
   | Elapse (Maybe Format) (Maybe TimeStamp) Interval
   | Range (Maybe Format) (Maybe TimeStamp) Take Interval
-  | Seconds Interval
 
 data Format
   = UNIXS
@@ -39,13 +33,23 @@ data Format
   | ISO8601
   | Custom String (Maybe Int)
 
-data Interval = Interval
-  { milliseconds :: Maybe Integer,
-    seconds :: Maybe Integer,
-    minutes :: Maybe Integer,
-    hours :: Maybe Integer,
-    days :: Maybe Integer
-  }
+type Milliseconds = Integer
+
+type Seconds = Integer
+
+type Minutes = Integer
+
+type Hours = Integer
+
+type Days = Integer
+
+data Interval
+  = Interval
+      (Maybe Milliseconds)
+      (Maybe Seconds)
+      (Maybe Minutes)
+      (Maybe Hours)
+      (Maybe Days)
 
 newtype Take = Take Integer
 
@@ -55,17 +59,17 @@ data TimeStamp
 
 run :: IO ()
 run = do
-  configResult <- Config.load
-  app <- newApp configResult
+  c <- Config.load
+  app <- newApp c
   opts <- runParser
   let command = optCommand opts
   runCommands app command
 
 newApp :: Either Config.NoConfig (FilePath, Config.Config) -> IO App
-newApp configResult = do
-  time <- Time.newTime configResult
-  let out = Out.newOut
-  return $ App configResult time out
+newApp c = do
+  t <- Time.newTime c
+  let o = Out.newOut
+  return $ App c t o
 
 runParser :: IO Opts
 runParser = OA.execParser optsParser
@@ -194,14 +198,14 @@ runParser = OA.execParser optsParser
     intervalOptions :: OA.Parser Interval
     intervalOptions =
       Interval
-        <$> OA.optional milliseconds
-        <*> OA.optional seconds
-        <*> OA.optional minutes
-        <*> OA.optional hours
-        <*> OA.optional days
+        <$> OA.optional millisecondParser
+        <*> OA.optional secondParser
+        <*> OA.optional minuteParser
+        <*> OA.optional hourParser
+        <*> OA.optional dayParser
       where
-        milliseconds :: OA.Parser Integer
-        milliseconds =
+        millisecondParser :: OA.Parser Milliseconds
+        millisecondParser =
           OA.option
             OA.auto
             ( OA.long "milliseconds"
@@ -210,8 +214,8 @@ runParser = OA.execParser optsParser
                 <> OA.help "number of milliseconds relative to the timestamp"
             )
 
-        seconds :: OA.Parser Integer
-        seconds =
+        secondParser :: OA.Parser Seconds
+        secondParser =
           OA.option
             OA.auto
             ( OA.long "second"
@@ -221,8 +225,8 @@ runParser = OA.execParser optsParser
                 <> OA.help "number of seconds relative to the timestamp"
             )
 
-        minutes :: OA.Parser Integer
-        minutes =
+        minuteParser :: OA.Parser Minutes
+        minuteParser =
           OA.option
             OA.auto
             ( OA.long "minute"
@@ -232,8 +236,8 @@ runParser = OA.execParser optsParser
                 <> OA.help "number of minutes relative to the timestamp"
             )
 
-        hours :: OA.Parser Integer
-        hours =
+        hourParser :: OA.Parser Hours
+        hourParser =
           OA.option
             OA.auto
             ( OA.long "hour"
@@ -243,8 +247,8 @@ runParser = OA.execParser optsParser
                 <> OA.help "number of hours relative to the timestamp"
             )
 
-        days :: OA.Parser Integer
-        days =
+        dayParser :: OA.Parser Days
+        dayParser =
           OA.option
             OA.auto
             ( OA.long "day"
@@ -279,13 +283,21 @@ runParser = OA.execParser optsParser
         nowParser = OA.flag' TSNow (OA.long "now" <> OA.help "current timestamp")
 
 runCommands :: App -> Command -> IO ()
-runCommands app Env = do
+runCommands app Env = runEnvCommand app
+runCommands app (Now format) = runNowCommand app format
+runCommands app (Elapse format timestamp interval) =
+  runElapseCommand app format timestamp interval
+runCommands app (Range format timestamp takeN interval) =
+  runRangeCommand app format timestamp takeN interval
+
+runEnvCommand :: App -> IO ()
+runEnvCommand app = do
   let filePathResult = fst <$> app.configResult
-  let configResult = snd <$> app.configResult
-  let unixConfig = Config.unixConfig <$> configResult
+  let configResult' = snd <$> app.configResult
+  let unixConfig = Config.unixConfig <$> configResult'
   loadedConfigMessage filePathResult
   generalConfigHeader filePathResult
-  generalConfigMessage configResult
+  generalConfigMessage configResult'
   unixConfigHeader unixConfig
   unixConfigPrecision ((Config.precision =<<) <$> unixConfig)
   where
@@ -314,8 +326,8 @@ runCommands app Env = do
         $ "General Config " <> messageNotSetUsingDefaults
 
     generalConfigMessage :: Either Config.NoConfig Config.Config -> IO ()
-    generalConfigMessage configResult = do
-      formatMessage (Config.format <$> configResult)
+    generalConfigMessage config = do
+      formatMessage (Config.format <$> config)
       where
         formatMessage :: Either Config.NoConfig (Maybe Config.Format) -> IO ()
         formatMessage (Right (Just f)) =
@@ -328,7 +340,7 @@ runCommands app Env = do
             $ "format: " <> show Config.defaultFormat <> "(not set, using defaults)\n"
 
     unixConfigHeader :: Either Config.NoConfig (Maybe Config.UNIXConfig) -> IO ()
-    unixConfigHeader (Right (Just unix)) =
+    unixConfigHeader (Right (Just _)) =
       Out.putStrLn
         app.out.info {Out.isUnderlined = True, Out.isBold = True}
         "UNIX Config:"
@@ -346,21 +358,27 @@ runCommands app Env = do
       Out.putStrLn
         app.out.warn
         $ "precision: " <> show Config.defaultUNIXPrecision <> " " <> messageNotSetUsingDefaults
-runCommands app (Now format) = do
+
+runNowCommand :: App -> Maybe Format -> IO ()
+runNowCommand app format = do
   now <- Time.now
-  let format' = parseFormat format app.time.tz
+  let format' = parseFormat format app.time.timezone
   let formatted = Time.toText format' now
   Out.Text.putStrLn app.out.info formatted
-runCommands app (Elapse format timestamp interval) = do
+
+runElapseCommand :: App -> Maybe Format -> Maybe TimeStamp -> Interval -> IO ()
+runElapseCommand app format timestamp interval = do
   ts <- timeStampToUNIXOrNow timestamp
   let elapsed = Time.elapse (convertInterval interval) ts
-  let format' = parseFormat format app.time.tz
+  let format' = parseFormat format app.time.timezone
   let formatted = Time.toText format' elapsed
   Out.Text.putStrLn app.out.info formatted
-runCommands app (Range format timestamp (Take n) interval) = do
+
+runRangeCommand :: App -> Maybe Format -> Maybe TimeStamp -> Take -> Interval -> IO ()
+runRangeCommand app format timestamp (Take n) interval = do
   ts <- timeStampToUNIXOrNow timestamp
   let tsRange = Time.range ts n . convertInterval $ interval
-  let format' = parseFormat format app.time.tz
+  let format' = parseFormat format app.time.timezone
   let formattedTs = map (Time.toText format') tsRange
   let formatted = T.intercalate "\n" formattedTs
   Out.Text.putStrLn app.out.info formatted
@@ -385,3 +403,4 @@ parseFormat (Just UNIXS) _ = Time.UNIX Time.S
 parseFormat (Just ISO8601) _ = Time.ISO8601
 parseFormat (Just (Custom f (Just offset))) _ = Time.Custom f (Data.Time.minutesToTimeZone (offset * 60))
 parseFormat (Just (Custom f Nothing)) tz = Time.Custom f tz
+parseFormat Nothing _ = Time.UNIX Time.S

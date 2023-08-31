@@ -1,10 +1,29 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 
-module Time where
+module Time
+  ( newTime,
+    Time (Time, format, timezone, unixPrecision),
+    now,
+    toText,
+    elapse,
+    range,
+    UNIXTime,
+    Interval (Interval),
+    Unit
+      ( Millisecond,
+        Second,
+        Minute,
+        Hour,
+        Day
+      ),
+    Format (UNIX, ISO8601, Custom),
+    UNIXPrecision (MS, S),
+    coeffUNIX,
+    intervalToCoeffUNIX,
+  )
+where
 
 import qualified Config
-import qualified Config as Time
-import qualified Data.Maybe as Maybe
 import qualified Data.Text as T
 import qualified Data.Time as Time
 import qualified Data.Time.Clock.POSIX as POSIX
@@ -14,7 +33,7 @@ import qualified Data.Time.LocalTime as LocalTime
 
 data Time = Time
   { format :: Format,
-    tz :: Time.TimeZone,
+    timezone :: Time.TimeZone,
     unixPrecision :: UNIXPrecision
   }
 
@@ -34,15 +53,15 @@ data Format
 newTime :: Either Config.NoConfig (FilePath, Config.Config) -> IO Time
 newTime (Left _) = do
   tz <- Time.getCurrentTimeZone
-  return $ Time format tz unixPrecision
+  return $ Time f tz p
   where
-    unixPrecision = MS
-    format = UNIX MS
+    p = MS
+    f = UNIX MS
 newTime (Right (_, config)) = do
   tz <- getTZ
-  let unixPrecision = getUNIXPrecision (config.unixConfig >>= Config.precision)
-  let format = getFormat config.format unixPrecision tz
-  return $ Time format tz unixPrecision
+  let p = getUNIXPrecision (config.unixConfig >>= Config.precision)
+  let f = getFormat config.format p tz
+  return $ Time f tz p
   where
     getTZ :: IO LocalTime.TimeZone
     getTZ = case config.utc of
@@ -55,21 +74,19 @@ newTime (Right (_, config)) = do
     getUNIXPrecision (Just Config.S) = S
 
     getFormat :: Maybe Config.Format -> UNIXPrecision -> LocalTime.TimeZone -> Format
-    getFormat Nothing unixPrecision _ = UNIX unixPrecision
-    getFormat (Just Config.UNIX) unixPrecision _ = UNIX unixPrecision
+    getFormat Nothing p _ = UNIX p
+    getFormat (Just Config.UNIX) p _ = UNIX p
     getFormat (Just Config.ISO8601) _ _ = ISO8601
-    getFormat (Just (Config.Custom format)) _ tz = Custom format tz
-
-data ErrFormat = ErrFormat
+    getFormat (Just (Config.Custom f)) _ tz = Custom f tz
 
 toText :: Format -> UNIXTime -> T.Text
-toText format ts = formatted
+toText timeFormat ts = formatted
   where
-    formatted = case format of
-      UNIX S -> T.pack . show . round $ ts
-      UNIX MS -> T.pack . show . round . (* 1000) $ ts
+    formatted = case timeFormat of
+      UNIX S -> T.pack . (show :: Integer -> String) . round $ ts
+      UNIX MS -> T.pack . (show :: Integer -> String) . round . (* 1000) $ ts
       ISO8601 -> T.pack . ISO8601.iso8601Show . POSIX.posixSecondsToUTCTime $ ts
-      Custom f tz ->
+      Custom f t ->
         T.pack
           . TF.formatTime TF.defaultTimeLocale f
           . Time.addUTCTime (fromIntegral offset)
@@ -78,7 +95,7 @@ toText format ts = formatted
         where
           getUTCOffsetSeconds :: Time.TimeZone -> Int
           getUTCOffsetSeconds = (* 60) . Time.timeZoneMinutes
-          offset = getUTCOffsetSeconds tz
+          offset = getUTCOffsetSeconds t
 
 data Unit
   = Millisecond
@@ -88,24 +105,22 @@ data Unit
   | Day
   deriving (Show)
 
-unixCoeff :: Unit -> UNIXTime
-unixCoeff Millisecond = 0.001
-unixCoeff Second = 1000 * unixCoeff Millisecond
-unixCoeff Minute = 60 * unixCoeff Second
-unixCoeff Hour = 60 * unixCoeff Minute
-unixCoeff Day = 24 * unixCoeff Hour
+type Coeff = Integer
 
-data Interval = Interval
-  { unit :: Unit,
-    coeff :: Integer
-  }
-  deriving (Show)
+coeffUNIX :: Unit -> UNIXTime
+coeffUNIX Millisecond = 0.001
+coeffUNIX Second = 1000 * coeffUNIX Millisecond
+coeffUNIX Minute = 60 * coeffUNIX Second
+coeffUNIX Hour = 60 * coeffUNIX Minute
+coeffUNIX Day = 24 * coeffUNIX Hour
 
-intervalToUnixCoeff :: Interval -> UNIXTime
-intervalToUnixCoeff (Interval unit coeff) = unixCoeff unit * realToFrac coeff
+data Interval = Interval Unit Coeff deriving (Show)
+
+intervalToCoeffUNIX :: Interval -> UNIXTime
+intervalToCoeffUNIX (Interval unit coeff) = coeffUNIX unit * realToFrac coeff
 
 elapse :: [Interval] -> UNIXTime -> UNIXTime
-elapse = (+) . sum . map intervalToUnixCoeff
+elapse = (+) . sum . map intervalToCoeffUNIX
 
 now :: IO POSIX.POSIXTime
 now = POSIX.getPOSIXTime
@@ -113,4 +128,4 @@ now = POSIX.getPOSIXTime
 range :: UNIXTime -> Integer -> [Interval] -> [UNIXTime]
 range ts n timeUnits = take (fromIntegral n) [ts, ts + step ..]
   where
-    step = sum . map intervalToUnixCoeff $ timeUnits
+    step = sum . map intervalToCoeffUNIX $ timeUnits
