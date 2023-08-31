@@ -1,4 +1,12 @@
-module Out where
+module Out
+  ( setStyling,
+    MessageStyle (colorFG, colorBG, isUnderlined, isBold),
+    Out (info, warn, error),
+    newOut,
+    Out.putStr,
+    Out.putStrLn,
+  )
+where
 
 import qualified System.Console.ANSI as ANSI
 
@@ -16,23 +24,23 @@ data MessageStyle = MessageStyle
   }
 
 newOut :: Out
-newOut = Out info warn error
+newOut = Out i w e
   where
-    info =
+    i =
       MessageStyle
         { colorFG = [ANSI.SetColor ANSI.Foreground ANSI.Dull ANSI.Blue],
           colorBG = [],
           isUnderlined = False,
           isBold = True
         }
-    warn =
+    w =
       MessageStyle
         { colorFG = [ANSI.SetColor ANSI.Foreground ANSI.Dull ANSI.Yellow],
           colorBG = [],
           isUnderlined = False,
           isBold = False
         }
-    error =
+    e =
       MessageStyle
         { colorFG = [ANSI.SetColor ANSI.Foreground ANSI.Dull ANSI.Red],
           colorBG = [],
