@@ -18,6 +18,8 @@ module Time
       ),
     Format (UNIX, ISO8601, Custom),
     UNIXPrecision (MS, S),
+    coeffUNIX,
+    intervalToCoeffUNIX,
   )
 where
 
@@ -105,20 +107,20 @@ data Unit
 
 type Coeff = Integer
 
-unixCoeff :: Unit -> UNIXTime
-unixCoeff Millisecond = 0.001
-unixCoeff Second = 1000 * unixCoeff Millisecond
-unixCoeff Minute = 60 * unixCoeff Second
-unixCoeff Hour = 60 * unixCoeff Minute
-unixCoeff Day = 24 * unixCoeff Hour
+coeffUNIX :: Unit -> UNIXTime
+coeffUNIX Millisecond = 0.001
+coeffUNIX Second = 1000 * coeffUNIX Millisecond
+coeffUNIX Minute = 60 * coeffUNIX Second
+coeffUNIX Hour = 60 * coeffUNIX Minute
+coeffUNIX Day = 24 * coeffUNIX Hour
 
 data Interval = Interval Unit Coeff deriving (Show)
 
-intervalToUnixCoeff :: Interval -> UNIXTime
-intervalToUnixCoeff (Interval unit coeff) = unixCoeff unit * realToFrac coeff
+intervalToCoeffUNIX :: Interval -> UNIXTime
+intervalToCoeffUNIX (Interval unit coeff) = coeffUNIX unit * realToFrac coeff
 
 elapse :: [Interval] -> UNIXTime -> UNIXTime
-elapse = (+) . sum . map intervalToUnixCoeff
+elapse = (+) . sum . map intervalToCoeffUNIX
 
 now :: IO POSIX.POSIXTime
 now = POSIX.getPOSIXTime
@@ -126,4 +128,4 @@ now = POSIX.getPOSIXTime
 range :: UNIXTime -> Integer -> [Interval] -> [UNIXTime]
 range ts n timeUnits = take (fromIntegral n) [ts, ts + step ..]
   where
-    step = sum . map intervalToUnixCoeff $ timeUnits
+    step = sum . map intervalToCoeffUNIX $ timeUnits
