@@ -1,6 +1,25 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 
-module Time where
+module Time
+  ( newTime,
+    Time (Time, format, tz, unixPrecision),
+    now,
+    toText,
+    elapse,
+    range,
+    UNIXTime,
+    Interval (Interval),
+    Unit
+      ( Millisecond,
+        Second,
+        Minute,
+        Hour,
+        Day
+      ),
+    Format (UNIX, ISO8601, Custom),
+    UNIXPrecision (MS, S),
+  )
+where
 
 import qualified Config
 import qualified Config as Time
@@ -66,10 +85,10 @@ toText :: Format -> UNIXTime -> T.Text
 toText format ts = formatted
   where
     formatted = case format of
-      UNIX S -> T.pack . show . round $ ts
-      UNIX MS -> T.pack . show . round . (* 1000) $ ts
+      UNIX S -> T.pack . (show :: Integer -> String) . round $ ts
+      UNIX MS -> T.pack . (show :: Integer -> String) . round . (* 1000) $ ts
       ISO8601 -> T.pack . ISO8601.iso8601Show . POSIX.posixSecondsToUTCTime $ ts
-      Custom f tz ->
+      Custom f t ->
         T.pack
           . TF.formatTime TF.defaultTimeLocale f
           . Time.addUTCTime (fromIntegral offset)
@@ -78,7 +97,7 @@ toText format ts = formatted
         where
           getUTCOffsetSeconds :: Time.TimeZone -> Int
           getUTCOffsetSeconds = (* 60) . Time.timeZoneMinutes
-          offset = getUTCOffsetSeconds tz
+          offset = getUTCOffsetSeconds t
 
 data Unit
   = Millisecond
@@ -88,6 +107,8 @@ data Unit
   | Day
   deriving (Show)
 
+type Coeff = Integer
+
 unixCoeff :: Unit -> UNIXTime
 unixCoeff Millisecond = 0.001
 unixCoeff Second = 1000 * unixCoeff Millisecond
@@ -95,11 +116,7 @@ unixCoeff Minute = 60 * unixCoeff Second
 unixCoeff Hour = 60 * unixCoeff Minute
 unixCoeff Day = 24 * unixCoeff Hour
 
-data Interval = Interval
-  { unit :: Unit,
-    coeff :: Integer
-  }
-  deriving (Show)
+data Interval = Interval Unit Coeff deriving (Show)
 
 intervalToUnixCoeff :: Interval -> UNIXTime
 intervalToUnixCoeff (Interval unit coeff) = unixCoeff unit * realToFrac coeff
