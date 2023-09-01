@@ -82,19 +82,20 @@ elapseSpec = H.describe "elapse" $ do
 
 rangeSpec :: H.Spec
 rangeSpec = H.describe "range" $ do
-  H.describe "given an 0 n" $ do
-    H.it "should always return empty list" $ do
-      QC.property $ \ts ->
-        QC.property $ \intervals ->
-          Time.range ts 0 intervals `H.shouldBe` []
-  H.describe "given empty intervals" $ do
-    H.it "should return ts in a list of size n" $ do
+  H.describe "take condition" $ do
+    H.describe "given a 0 n" $ do
+      H.it "should always return empty list" $ do
+        QC.property $ \ts ->
+          QC.property $ \intervals ->
+            Time.range ts (Time.Take 0) intervals `H.shouldBe` []
+    H.describe "given empty intervals" $ do
+      H.it "should return ts in a list of size n" $ do
+        QC.property $ \ts ->
+          QC.property $ \n ->
+            Time.range ts (Time.Take n) [] `H.shouldBe` replicate (fromIntegral n) ts
+    H.it "it should always return a list of ts incrementing with a step = intervals" $ do
       QC.property $ \ts ->
         QC.property $ \n ->
-          Time.range ts n [] `H.shouldBe` replicate (fromIntegral n) ts
-  H.it "it should always return a list of ts incrementing with a step = intervals" $ do
-    QC.property $ \ts ->
-      QC.property $ \n ->
-        QC.property $ \intervals ->
-          let totalInterval = (sum . map Time.intervalToCoeffUNIX $ intervals)
-           in Time.range ts n intervals `H.shouldBe` [ts, ts + totalInterval]
+          QC.property $ \intervals ->
+            let totalInterval = (sum . map Time.intervalToCoeffUNIX $ intervals)
+             in Time.range ts (Time.Take n) intervals `H.shouldBe` [ts, ts + totalInterval]
