@@ -6,6 +6,7 @@ module Time
     now,
     toText,
     elapse,
+    RangeLimit (Take, Predicate),
     range,
     UNIXTime,
     Interval (Interval),
@@ -125,7 +126,14 @@ elapse = (+) . sum . map intervalToCoeffUNIX
 now :: IO POSIX.POSIXTime
 now = POSIX.getPOSIXTime
 
-range :: UNIXTime -> Integer -> [Interval] -> [UNIXTime]
-range ts n timeUnits = take (fromIntegral n) [ts, ts + step ..]
+data RangeLimit
+  = Take Integer
+  | Predicate (UNIXTime -> Bool)
+
+range :: UNIXTime -> RangeLimit -> [Interval] -> [UNIXTime]
+range ts limit timeUnits = taker [ts, ts + step ..]
   where
     step = sum . map intervalToCoeffUNIX $ timeUnits
+    taker = case limit of
+      Take n -> take (fromIntegral n)
+      Predicate f -> takeWhile f

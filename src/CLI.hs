@@ -25,7 +25,7 @@ data Command
   = Env
   | Now (Maybe Format)
   | Elapse (Maybe Format) (Maybe TimeStamp) Interval
-  | Range (Maybe Format) (Maybe TimeStamp) Take Interval
+  | Range (Maybe Format) (Maybe TimeStamp) RangeLimit Interval
 
 data Format
   = UNIXS
@@ -51,7 +51,17 @@ data Interval
       (Maybe Hours)
       (Maybe Days)
 
-newtype Take = Take Integer
+data RangeLimit
+  = RangeTake Integer
+  | RangeComparison RangeComparisonOp TimeStamp
+
+data RangeComparisonOp
+  = RangeGTE
+  | RangeGT
+  | RangeEQ
+  | RangeNEQ
+  | RangeLT
+  | RangeLTE
 
 data TimeStamp
   = TSUNIX Integer
@@ -130,7 +140,7 @@ runParser = OA.execParser optsParser
         elapseOptions =
           Elapse
             <$> formatOptions
-            <*> timestampOptions
+            <*> OA.optional timestampParser
             <*> intervalOptions
 
     rangeCommand :: OA.Mod OA.CommandFields Command
@@ -146,8 +156,8 @@ runParser = OA.execParser optsParser
         rangeOptions =
           Range
             <$> formatOptions
-            <*> timestampOptions
-            <*> takeOptions
+            <*> OA.optional timestampParser
+            <*> rangeLimitParser
             <*> intervalOptions
 
     formatOptions :: OA.Parser (Maybe Format)
@@ -257,19 +267,41 @@ runParser = OA.execParser optsParser
                 <> OA.help "number of days relative to the timestamp"
             )
 
-    takeOptions :: OA.Parser Take
-    takeOptions =
-      Take
-        <$> OA.option
-          OA.auto
-          ( OA.long "take"
-              <> OA.short 't'
-              <> OA.metavar "TAKE_AMOUNT"
-              <> OA.help "number of values to take"
-          )
+    rangeLimitParser :: OA.Parser RangeLimit
+    rangeLimitParser = takeParser OA.<|> comparisonParser
+      where
+        takeParser =
+          RangeTake
+            <$> OA.option
+              OA.auto
+              ( OA.long "take"
+                  <> OA.short 't'
+                  <> OA.metavar "TAKE_AMOUNT"
+                  <> OA.help "number of values to take"
+              )
 
-    timestampOptions :: OA.Parser (Maybe TimeStamp)
-    timestampOptions = OA.optional $ unixParser OA.<|> nowParser
+        rangeComparisonOpParser =
+          gteParser
+            OA.<|> gtParser
+            OA.<|> eqParser
+            OA.<|> neqParser
+            OA.<|> ltParser
+            OA.<|> lteParser
+          where
+            gteParser = OA.flag' RangeGTE (OA.long "gte" <> OA.help ">=")
+            gtParser = OA.flag' RangeGT (OA.long "gt" <> OA.help ">")
+            eqParser = OA.flag' RangeEQ (OA.long "eq" <> OA.help "==")
+            neqParser = OA.flag' RangeNEQ (OA.long "neq" <> OA.help "!=")
+            ltParser = OA.flag' RangeLT (OA.long "lt" <> OA.help "<")
+            lteParser = OA.flag' RangeLTE (OA.long "lte" <> OA.help "<=")
+
+        comparisonParser =
+          RangeComparison
+            <$> rangeComparisonOpParser
+            <*> timestampParser
+
+    timestampParser :: OA.Parser TimeStamp
+    timestampParser = unixParser OA.<|> nowParser
       where
         unixParser =
           TSUNIX
@@ -374,10 +406,11 @@ runElapseCommand app format timestamp interval = do
   let formatted = Time.toText format' elapsed
   Out.Text.putStrLn app.out.info formatted
 
-runRangeCommand :: App -> Maybe Format -> Maybe TimeStamp -> Take -> Interval -> IO ()
-runRangeCommand app format timestamp (Take n) interval = do
+runRangeCommand :: App -> Maybe Format -> Maybe TimeStamp -> RangeLimit -> Interval -> IO ()
+runRangeCommand app format timestamp limit interval = do
   ts <- timeStampToUNIXOrNow timestamp
-  let tsRange = Time.range ts n . convertInterval $ interval
+  rangeLimit <- convertRangeLimit limit
+  let tsRange = Time.range ts rangeLimit . convertInterval $ interval
   let format' = parseFormat format app.time.timezone
   let formattedTs = map (Time.toText format') tsRange
   let formatted = T.intercalate "\n" formattedTs
@@ -396,6 +429,21 @@ convertInterval (Interval ms s m h d) =
     Time.Interval
     [Time.Millisecond, Time.Second, Time.Minute, Time.Hour, Time.Day]
     (map (Maybe.fromMaybe 0) [ms, s, m, h, d])
+
+convertRangeLimit :: RangeLimit -> IO Time.RangeLimit
+convertRangeLimit (RangeTake n) = return . Time.Take $ n
+convertRangeLimit (RangeComparison op ts) =
+  fmap (Time.Predicate . convertRangeComparisonOp op)
+    . timeStampToUNIX
+    $ ts
+
+convertRangeComparisonOp :: RangeComparisonOp -> Time.UNIXTime -> Time.UNIXTime -> Bool
+convertRangeComparisonOp RangeGTE = (<=)
+convertRangeComparisonOp RangeGT = (<)
+convertRangeComparisonOp RangeEQ = (==)
+convertRangeComparisonOp RangeNEQ = (/=)
+convertRangeComparisonOp RangeLT = (>)
+convertRangeComparisonOp RangeLTE = (>=)
 
 parseFormat :: Maybe Format -> Data.Time.TimeZone -> Time.Format
 parseFormat (Just UNIXMS) _ = Time.UNIX Time.MS
