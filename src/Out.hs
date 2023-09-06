@@ -28,7 +28,7 @@ newOut = Out i w e
   where
     i =
       MessageStyle
-        { colorFG = [ANSI.SetColor ANSI.Foreground ANSI.Dull ANSI.Blue],
+        { colorFG = [],
           colorBG = [],
           isUnderlined = False,
           isBold = True
