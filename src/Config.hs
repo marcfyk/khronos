@@ -1,7 +1,22 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Config where
+module Config
+  ( NoConfig (NoFile, InvalidFile),
+    Config (Config),
+    UNIXConfig,
+    Format (UNIX, ISO8601, Custom),
+    UNIXPrecision (MS, S),
+    load,
+    format,
+    utc,
+    unixConfig,
+    precision,
+    defaultConfig,
+    defaultFormat,
+    defaultUNIXPrecision,
+  )
+where
 
 import qualified Control.Monad as Monad
 import qualified Data.Aeson as A
@@ -35,18 +50,18 @@ instance A.FromJSON Config where
       <*> v A..:? "unix"
 
 instance A.ToJSON Config where
-  toJSON (Config format utc unix) =
+  toJSON (Config fmt utcTime unix) =
     A.object
-      [ "format" A..= format,
-        "utc" A..= utc,
+      [ "format" A..= fmt,
+        "utc" A..= utcTime,
         "unix" A..= unix
       ]
-  toEncoding (Config format utc unix) =
+  toEncoding (Config fmt utcTime unix) =
     A.pairs
       ( "format"
-          A..= format
+          A..= fmt
           <> "utc"
-          A..= utc
+          A..= utcTime
           <> "unix"
           A..= unix
       )
@@ -88,8 +103,8 @@ instance A.FromJSON UNIXConfig where
   parseJSON = A.withObject "UNIXConfig" $ \v -> UNIXConfig <$> v A..: "precision"
 
 instance A.ToJSON UNIXConfig where
-  toJSON (UNIXConfig precision) = A.object ["precision" A..= precision]
-  toEncoding (UNIXConfig precision) = A.pairs ("precision" A..= precision)
+  toJSON (UNIXConfig p) = A.object ["precision" A..= p]
+  toEncoding (UNIXConfig p) = A.pairs ("precision" A..= p)
 
 data UNIXPrecision
   = MS
