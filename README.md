@@ -25,6 +25,7 @@ about the command and its arguments / flags / options that it takes.
 - now
 - elapse
 - range
+- fmt
 
 ### env
 
@@ -44,6 +45,10 @@ This command prints the elapsed time from now with a given offset.
 This command prints a list of new line separated timestamps of given size,
 starting from an initial timestamp, and subsequently applying an offset to the
 previous timestamp in the list.
+
+### fmt
+
+This command formats a timestamp to a specified format.
 
 ## Settings
 
