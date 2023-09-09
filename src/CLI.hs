@@ -19,13 +19,14 @@ data App = App
     out :: Out.Out
   }
 
-newtype Opts = Opts {optCommand :: Command}
+newtype Opts = Opts Command
 
 data Command
   = Env
   | Now (Maybe Format)
   | Elapse (Maybe Format) (Maybe TimeStamp) Interval
   | Range (Maybe Format) (Maybe TimeStamp) RangeLimit Interval
+  | Fmt Format TimeStamp
 
 data Format
   = UNIXS
@@ -71,8 +72,7 @@ run :: IO ()
 run = do
   c <- Config.load
   app <- newApp c
-  opts <- runParser
-  let command = optCommand opts
+  Opts command <- runParser
   runCommands app command
 
 newApp :: Either Config.NoConfig (FilePath, Config.Config) -> IO App
@@ -92,6 +92,7 @@ runParser = OA.execParser optsParser
               <> nowCommand
               <> elapseCommand
               <> rangeCommand
+              <> fmtCommand
           )
 
     optsParser :: OA.ParserInfo Opts
@@ -125,7 +126,7 @@ runParser = OA.execParser optsParser
         )
       where
         nowOptions :: OA.Parser Command
-        nowOptions = Now <$> formatOptions
+        nowOptions = Now <$> OA.optional formatParser
 
     elapseCommand :: OA.Mod OA.CommandFields Command
     elapseCommand =
@@ -139,7 +140,7 @@ runParser = OA.execParser optsParser
         elapseOptions :: OA.Parser Command
         elapseOptions =
           Elapse
-            <$> formatOptions
+            <$> OA.optional formatParser
             <*> OA.optional timestampParser
             <*> intervalOptions
 
@@ -155,18 +156,31 @@ runParser = OA.execParser optsParser
         rangeOptions :: OA.Parser Command
         rangeOptions =
           Range
-            <$> formatOptions
+            <$> OA.optional formatParser
             <*> OA.optional timestampParser
             <*> rangeLimitParser
             <*> intervalOptions
 
-    formatOptions :: OA.Parser (Maybe Format)
-    formatOptions =
-      OA.optional $
-        unixSParser
-          OA.<|> unixMSParser
-          OA.<|> isoParser
-          OA.<|> customParser
+    fmtCommand :: OA.Mod OA.CommandFields Command
+    fmtCommand =
+      OA.command
+        "fmt"
+        ( OA.info
+            (fmtOptions OA.<**> OA.helper)
+            (OA.progDesc "Formats time")
+        )
+      where
+        fmtOptions =
+          Fmt
+            <$> formatParser
+            <*> timestampParser
+
+    formatParser :: OA.Parser Format
+    formatParser =
+      unixSParser
+        OA.<|> unixMSParser
+        OA.<|> isoParser
+        OA.<|> customParser
       where
         unixSParser :: OA.Parser Format
         unixSParser = OA.flag' UNIXS (OA.long "unix-s" <> OA.help "unix format in seconds")
@@ -186,10 +200,10 @@ runParser = OA.execParser optsParser
         customParser :: OA.Parser Format
         customParser =
           Custom
-            <$> formatParser
+            <$> customFormatParser
             <*> utcOffsetParser
           where
-            formatParser =
+            customFormatParser =
               OA.strOption
                 ( OA.long "format"
                     <> OA.short 'f'
@@ -321,6 +335,8 @@ runCommands app (Elapse format timestamp interval) =
   runElapseCommand app format timestamp interval
 runCommands app (Range format timestamp takeN interval) =
   runRangeCommand app format timestamp takeN interval
+runCommands app (Fmt format timestamp) =
+  runFmtCommand app format timestamp
 
 runEnvCommand :: App -> IO ()
 runEnvCommand app = do
@@ -394,7 +410,7 @@ runEnvCommand app = do
 runNowCommand :: App -> Maybe Format -> IO ()
 runNowCommand app format = do
   now <- Time.now
-  let format' = parseFormat format app.time.timezone
+  let format' = parseMaybeFormat format app.time.timezone
   let formatted = Time.toText format' now
   Out.Text.putStrLn app.out.info formatted
 
@@ -402,7 +418,7 @@ runElapseCommand :: App -> Maybe Format -> Maybe TimeStamp -> Interval -> IO ()
 runElapseCommand app format timestamp interval = do
   ts <- timeStampToUNIXOrNow timestamp
   let elapsed = Time.elapse (convertInterval interval) ts
-  let format' = parseFormat format app.time.timezone
+  let format' = parseMaybeFormat format app.time.timezone
   let formatted = Time.toText format' elapsed
   Out.Text.putStrLn app.out.info formatted
 
@@ -411,9 +427,16 @@ runRangeCommand app format timestamp limit interval = do
   ts <- timeStampToUNIXOrNow timestamp
   rangeLimit <- convertRangeLimit limit
   let tsRange = Time.range ts rangeLimit . convertInterval $ interval
-  let format' = parseFormat format app.time.timezone
+  let format' = parseMaybeFormat format app.time.timezone
   let formattedTs = map (Time.toText format') tsRange
   let formatted = T.intercalate "\n" formattedTs
+  Out.Text.putStrLn app.out.info formatted
+
+runFmtCommand :: App -> Format -> TimeStamp -> IO ()
+runFmtCommand app format timestamp = do
+  let format' = parseFormat format app.time.timezone
+  unixTS <- timeStampToUNIX timestamp
+  let formatted = Time.toText format' unixTS
   Out.Text.putStrLn app.out.info formatted
 
 timeStampToUNIX :: TimeStamp -> IO Time.UNIXTime
@@ -445,10 +468,14 @@ convertRangeComparisonOp RangeNEQ = (/=)
 convertRangeComparisonOp RangeLT = (>)
 convertRangeComparisonOp RangeLTE = (>=)
 
-parseFormat :: Maybe Format -> Data.Time.TimeZone -> Time.Format
-parseFormat (Just UNIXMS) _ = Time.UNIX Time.MS
-parseFormat (Just UNIXS) _ = Time.UNIX Time.S
-parseFormat (Just ISO8601) _ = Time.ISO8601
-parseFormat (Just (Custom f (Just offset))) _ = Time.Custom f (Data.Time.minutesToTimeZone (offset * 60))
-parseFormat (Just (Custom f Nothing)) tz = Time.Custom f tz
-parseFormat Nothing _ = Time.UNIX Time.S
+parseFormat :: Format -> Data.Time.TimeZone -> Time.Format
+parseFormat UNIXMS _ = Time.UNIX Time.MS
+parseFormat UNIXS _ = Time.UNIX Time.S
+parseFormat ISO8601 _ = Time.ISO8601
+parseFormat (Custom f (Just offset)) _ = Time.Custom f (Data.Time.minutesToTimeZone (offset * 60))
+parseFormat (Custom f Nothing) tz = Time.Custom f tz
+
+parseMaybeFormat :: Maybe Format -> Data.Time.TimeZone -> Time.Format
+parseMaybeFormat maybeFormat = parseFormat format
+  where
+    format = Maybe.fromMaybe UNIXS maybeFormat
