@@ -65,7 +65,8 @@ data RangeComparisonOp
   | RangeLTE
 
 data TimeStamp
-  = TSUNIX Integer
+  = TSUNIXS Integer
+  | TSUNIXMS Integer
   | TSNow
 
 run :: IO ()
@@ -315,16 +316,23 @@ runParser = OA.execParser optsParser
             <*> timestampParser
 
     timestampParser :: OA.Parser TimeStamp
-    timestampParser = unixParser OA.<|> nowParser
+    timestampParser = unixSParser OA.<|> unixMSParser OA.<|> nowParser
       where
-        unixParser =
-          TSUNIX
+        unixSParser =
+          TSUNIXS
             <$> OA.option
               OA.auto
-              ( OA.long "timestamp"
-                  <> OA.long "ts"
-                  <> OA.metavar "TIMESTAMP"
-                  <> OA.help "timestamp"
+              ( OA.long "ts-unix-s"
+                  <> OA.metavar "TIMESTAMP_UNIX_S"
+                  <> OA.help "timestamp in unix (seconds)"
+              )
+        unixMSParser =
+          TSUNIXMS
+            <$> OA.option
+              OA.auto
+              ( OA.long "ts-unix-ms"
+                  <> OA.metavar "TIMESTAMP_UNIX_MS"
+                  <> OA.help "timestamp in unix (milliseconds)"
               )
         nowParser = OA.flag' TSNow (OA.long "now" <> OA.help "current timestamp")
 
@@ -440,7 +448,8 @@ runFmtCommand app format timestamp = do
   Out.Text.putStrLn app.out.info formatted
 
 timeStampToUNIX :: TimeStamp -> IO Time.UNIXTime
-timeStampToUNIX (TSUNIX ts) = return . realToFrac $ ts
+timeStampToUNIX (TSUNIXS ts) = return . realToFrac $ ts
+timeStampToUNIX (TSUNIXMS ts) = return . (/ 1000) . realToFrac $ ts
 timeStampToUNIX TSNow = Time.now
 
 timeStampToUNIXOrNow :: Maybe TimeStamp -> IO Time.UNIXTime
